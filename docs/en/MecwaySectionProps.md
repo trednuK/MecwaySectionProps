@@ -42,6 +42,7 @@ when you choose the language in the window; not in git):
 | Key | Meaning | Default |
 |---|---|---|
 | `language` | `nl` or `en` (the NL/EN buttons of the window) | the Windows language |
+| `accuracy` | `coarse`, `normal`, `fine` or `very_fine` (the *Accuracy* choice) | `normal` |
 | `work_dir` | work folder for input, result and log | `WorkDir` next to `Scripts` |
 | `aster_python` | path of a `python.exe` with numpy and scipy | found in the Code-Aster installation |
 
@@ -66,12 +67,18 @@ when you choose the language in the window; not in git):
      mesh faces on the CAD face; the whole CAD face counts. Several adjacent CAD faces in
      the same plane are merged. The model must be saved (the link component → STEP file
      is in the `.liml`).
-4. Click **Calculate**. The analysis (a mesh of about 3000 quadratic triangles and the
-   finite element analysis for torsion and shear) takes a few seconds; the status line
+4. Optionally choose the **Accuracy** (the fineness of the mesh the section is analysed
+   on): *Coarse* (about 1000 quadratic triangles), *Normal* (about 3000, default), *Fine*
+   (about 10000) or *Very fine* (about 30000); in thin walls also more elements across
+   the thickness (2, 3, 4 or 6 rows). The choice is remembered and applies at the next
+   click on *Calculate*; the fineness used is shown under the table.
+5. Click **Calculate**. The analysis (the mesh and the finite element analysis for
+   torsion and shear) takes a few seconds (*Very fine* a bit longer); the status line
    counts along.
-5. Read the table and the drawing; *Copy* puts the table on the clipboard
-   (tab-separated, Windows decimal separator). *NL*/*EN* at the top right switches the
-   language, *Unit* between mm and m.
+6. Read the table and the drawing; *Copy* puts the table on the clipboard
+   (tab-separated, Windows decimal separator), *Copy image* only the drawing (twice as
+   sharp as on screen). *NL*/*EN* at the top right switches the language, *Unit* between
+   mm and m.
 
 **Small gaps in the boundary** are repaired automatically so that the analysis can
 still run; every repair is listed as a note under the table:
@@ -82,6 +89,10 @@ still run; every repair is listed as a note under the table:
   are joined to the nearest free end with a straight line.
 - *CAD face*: edges whose end points do not exactly meet are joined with a straight
   line.
+- Both: when the faces do not lie exactly in one flat plane (a mesh or CAD model with a
+  small deviation), they are projected onto the best-fitting plane ("straightened"); the
+  largest deviation is shown under the table. Only a deviation of more than 1% of the
+  size (a curved selection) stops the analysis.
 - A gap is only closed up to 2% of the size of the section; a larger one stops the
   analysis with the location of the gap. A real slot (with its own edges) has no free
   ends and therefore stays open.
@@ -180,7 +191,8 @@ axis 2):
 ## 6. Accuracy and verification
 
 The section is meshed again with quadratic triangles (tri6, about 3000 by default; in
-thin walls fine enough for at least three elements across the thickness). Area, centroid,
+thin walls fine enough for at least three elements across the thickness; the *Accuracy*
+choice in §2 changes both). Area, centroid,
 second moments and section moduli follow exactly from the triangles; torsion, warping and
 shear from a finite element analysis (Pilkey, 2002), the same formulation as the Python
 package sectionproperties that AreaPropsForAlibre uses. Shear with ν = 0, as
@@ -208,8 +220,8 @@ boundaries.
 
 ## 7. Limitations
 
-- **Flat** sections only: the selected faces must lie in one plane (deviation at most
-  1e-5 of the size).
+- **Flat** sections only: the selected faces must lie in one plane; a deviation up to
+  1% of the size is straightened (§2).
 - *Mesh faces*: the boundary is as accurate as the mesh. A circle with linear elements is
   a polygon; quadratic elements follow an arc through the midside node (a coarse arc of
   45° per element misses 0.2% of the area). For curved boundaries prefer *CAD face* or a

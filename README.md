@@ -43,7 +43,8 @@ Nothing else needs to be installed.
 1. In Mecway choose *Edit* > *Select faces* (and, handy, *Edit* > *Edge detecting
    selection*: one click selects a whole flat face) and select the faces of the section.
 2. *Tools* > *MecwaySectionProps*. The window stays open next to Mecway.
-3. Choose *Mesh faces* or *CAD face*, click **Calculate**.
+3. Choose *Mesh faces* or *CAD face* and the *Accuracy* (mesh fineness), click
+   **Calculate**. *Copy* puts the table on the clipboard, *Copy image* the drawing.
 4. Optionally **Create general section** (material name, component, copy E/ν/ρ, store the
    extra Code-Aster properties).
 

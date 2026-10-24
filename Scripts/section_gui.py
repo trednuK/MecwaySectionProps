@@ -140,8 +140,21 @@ T = {
                u"n; loopt de balk andersom, dan is de doorsnede gespiegeld.",
                u"EY/EZ apply to beams running from node 1 to 2 along n; a "
                u"beam running the other way sees the section mirrored."),
-    "n_mesh": (u"Mesh: {0} elementen (tri6), {1} knopen.",
-               u"Mesh: {0} elements (tri6), {1} nodes."),
+    "n_mesh": (u"Mesh: {0} elementen (tri6), {1} knopen; nauwkeurigheid "
+               u"{2}.",
+               u"Mesh: {0} elements (tri6), {1} nodes; accuracy {2}."),
+    "n_flat": (u"Vlak rechtgetrokken: de vlakken weken tot {0} mm af van "
+               u"één plat vlak (geprojecteerd op het best passende "
+               u"vlak).",
+               u"Face straightened: the faces deviated up to {0} mm from one "
+               u"flat plane (projected onto the best-fitting plane)."),
+    "accuracy": (u"Nauwkeurigheid:", u"Accuracy:"),
+    "acc_coarse": (u"Grof (~1000 elementen)", u"Coarse (~1000 elements)"),
+    "acc_normal": (u"Normaal (~3000)", u"Normal (~3000)"),
+    "acc_fine": (u"Fijn (~10000)", u"Fine (~10000)"),
+    "acc_very_fine": (u"Zeer fijn (~30000)", u"Very fine (~30000)"),
+    "copy_img": (u"Afbeelding kopiëren", u"Copy image"),
+    "copied_img": (u"Afbeelding gekopieerd", u"Image copied"),
     "n_cad": (u"Rand uit STEP: {0}", u"Boundary from STEP: {0}"),
     "n_welded": (u"{0} dubbele knopen samengevoegd.",
                  u"{0} duplicate nodes merged."),
@@ -251,6 +264,10 @@ def heal_notes(heal, lang):
     notes = []
     if not heal:
         return notes
+    if heal.get("flattened"):
+        dec = u"," if lang == "nl" else u"."
+        notes.append(tx("n_flat", lang).format(
+            fmt(heal["flattened"] * 1e3, dec)))
     if heal.get("welded"):
         notes.append(tx("n_welded", lang).format(heal["welded"]))
     if heal.get("split"):
@@ -359,8 +376,10 @@ def table_sections(res, plane, lang, unit, heal=None):
             res.get("warping_note") or u"?"))
     notes.append(tx("n_axes", lang).format(smw.axis_name(plane["u"]),
                                            smw.axis_name(plane["v"])))
-    notes.append(tx("n_mesh", lang).format(res.get("n_elements", "?"),
-                                           res.get("n_nodes", "?")))
+    acc = res.get("accuracy") or "normal"
+    notes.append(tx("n_mesh", lang).format(
+        res.get("n_elements", "?"), res.get("n_nodes", "?"),
+        tx("acc_" + acc, lang) if ("acc_" + acc) in T else acc))
     return sections, heal_notes(heal, lang) + notes
 
 
@@ -602,6 +621,7 @@ class _Window(object):
         self.caller = caller
         self.lang = _lang()
         self.unit = "mm"
+        self.accuracy = su.settings().get("accuracy") or "normal"
         self.mode = "mesh"
         self.res = None
         self.plane = None
@@ -783,13 +803,27 @@ class _Window(object):
         cb.Size = D.Size(60, 24)
         cb.SelectedIndexChanged += self._on_unit
         bar.Controls.Add(cb)
+        self._label(bar, self.t("accuracy"), x + 292, 12, 110, 22)
+        acc = F.ComboBox()
+        acc.DropDownStyle = F.ComboBoxStyle.DropDownList
+        keys = [k for k, _, _ in smw.ACCURACY]
+        for k in keys:
+            acc.Items.Add(self.t("acc_" + k))
+        acc.SelectedIndex = keys.index(self.accuracy) \
+            if self.accuracy in keys else keys.index("normal")
+        acc.Location = D.Point(x + 404, 10)
+        acc.Size = D.Size(190, 24)
+        acc.SelectedIndexChanged += self._on_accuracy
+        bar.Controls.Add(acc)
 
         footer = F.Panel()
         footer.BackColor = col["band"]
         footer.Dock = F.DockStyle.Bottom
         footer.Size = D.Size(W, FOOTER_H)
+        # ends left of the three buttons (a label drawn over a button hid
+        # "Copy image" in the Mecway GUI test of 24 Oct 2026)
         self.status_label = self._label(footer, self.status, PAD, 10,
-                                        W - 300, 32, 9)
+                                        W - 2 * PAD - 410, 32, 9)
         self.status_label.Anchor = F.AnchorStyles.Left | \
             F.AnchorStyles.Right | F.AnchorStyles.Top
         self._set_status(self.status, self.status_error)
@@ -799,6 +833,12 @@ class _Window(object):
         b = self._button(footer, self.t("copy"), W - PAD - 230, 11, 110,
                          self.on_copy)
         b.Anchor = F.AnchorStyles.Right | F.AnchorStyles.Top
+        b = self._button(footer, self.t("copy_img"), W - PAD - 400, 11, 160,
+                         self.on_copy_image)
+        b.Anchor = F.AnchorStyles.Right | F.AnchorStyles.Top
+        for c in list(footer.Controls):
+            if c is not self.status_label:
+                c.BringToFront()
 
         gs = F.Panel()
         gs.Dock = F.DockStyle.Bottom
@@ -1020,6 +1060,12 @@ class _Window(object):
         if sender.Checked:
             self.mode = sender.Tag
 
+    def _on_accuracy(self, sender, e):
+        """Takes effect at the next Calculate (remembered in the
+        settings)."""
+        self.accuracy = smw.ACCURACY[sender.SelectedIndex][0]
+        su.save_setting("accuracy", self.accuracy)
+
     def _on_unit(self, sender, e):
         self.unit = UNITS[sender.SelectedIndex]
         self.form.BeginInvoke(self.F.MethodInvoker(self.render))
@@ -1036,11 +1082,11 @@ class _Window(object):
     def on_calculate(self):
         if self.busy is not None:
             return
-        mode = self.mode
+        mode, accuracy = self.mode, self.accuracy
 
         def gather():
             faces = smw.read_selection(self.mw)
-            job, plane = smw.section_input(self.mw, faces, mode)
+            job, plane = smw.section_input(self.mw, faces, mode, accuracy)
             return faces, job, plane
         faces, job, plane = self.caller.call(gather)
         proc, dst = smw.start_analysis(job)
@@ -1083,10 +1129,12 @@ class _Window(object):
             self._update_buttons()
             return
         self.res, self.plane = res, plane
-        # mesh faces: repairs from section_mecway; CAD face: from section_step
-        # (copied into the result by section_analysis)
-        self.heal = job.get("heal") or {"gaps_closed":
-                                        res.get("gaps_closed") or []}
+        # repairs: from section_mecway (mesh faces, straightening) and from
+        # section_step (CAD face: gaps, copied into the result)
+        self.heal = dict(job.get("heal") or {})
+        if res.get("gaps_closed"):
+            self.heal["gaps_closed"] = res["gaps_closed"]
+        res["accuracy"] = job.get("accuracy")
         # (text key, argument): formatted in the language of each render
         if "step" in job:
             self.source = ("cad_faces", u", ".join(
@@ -1107,6 +1155,22 @@ class _Window(object):
         try:
             self.F.Clipboard.SetText(u"\r\n".join(lines))
             self._set_status(self.t("copied"))
+        except Exception as e:
+            self._set_status(self.t("copy_fail").format(e), True)
+
+    def on_copy_image(self):
+        """Only the drawing on the clipboard, sharper than on screen (as
+        AreaPropsForAlibre's 200 dpi plot)."""
+        if self.res is None:
+            return
+        pic = self.plot
+        w = max(900, 2 * pic.ClientSize.Width)
+        h = max(900, 2 * pic.ClientSize.Height)
+        try:
+            bmp = draw_plot(self.res, self.plane, self.lang, self.unit, w, h,
+                            2.0)
+            self.F.Clipboard.SetImage(bmp)
+            self._set_status(self.t("copied_img"))
         except Exception as e:
             self._set_status(self.t("copy_fail").format(e), True)
 
@@ -1146,10 +1210,11 @@ class _Window(object):
 # ==========================================
 # THE PLOT (System.Drawing, no matplotlib in Code-Aster's Python)
 # ==========================================
-def draw_plot(res, plane, lang, unit, w, h):
+def draw_plot(res, plane, lang, unit, w, h, k=1.0):
     """Bitmap w x h of the section: filled loops (even-odd), centroid,
     centroidal x/y axes, principal axes 1 (V) and 2 (W) with phi, shear
-    centre, and a legend under it."""
+    centre, and a legend under it. k > 1: drawn k times larger (text and
+    lines too), for a sharp copy on the clipboard."""
     D, F = _forms()
     from System import Array
     from System.Drawing.Drawing2D import (AdjustableArrowCap, DashStyle,
@@ -1158,10 +1223,13 @@ def draw_plot(res, plane, lang, unit, w, h):
     col = _colors()
     dec = u"," if lang == "nl" else u"."
     L = scale_of(unit, 1)
-    bmp = D.Bitmap(w, h)
+    bmp = D.Bitmap(int(w), int(h))
     g = D.Graphics.FromImage(bmp)
     g.SmoothingMode = SmoothingMode.AntiAlias
     g.Clear(col["bg"])
+    if k != 1.0:
+        g.ScaleTransform(float(k), float(k))
+        w, h = w / float(k), h / float(k)
     loops = res.get("loops") or []
     xs = [p[0] for lp in loops for p in lp]
     ys = [p[1] for lp in loops for p in lp]

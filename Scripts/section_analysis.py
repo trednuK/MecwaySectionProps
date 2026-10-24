@@ -16,6 +16,8 @@
 #    "step": {"file", "normal", "offset", "u", "v", "points", "tol"},
 #                                     alternative to "loops" (section_step)
 #    "mesh_size": null,               maximum element area in m^2 (null = auto)
+#    "n_target": 3000,                about this many tri6 elements (auto size)
+#    "n_across": 3.0,                 element rows across a thin wall
 #    "nu": 0.0}                       Poisson ratio for the shear functions
 # Output: flat keys in SI (see run_analysis), "loops" (the cleaned loops that
 # were meshed) and an "aster" block for AFFE_CARA_ELEM POUTRE
@@ -126,7 +128,10 @@ def run_analysis(data):
     else:
         raise ValueError("input needs 'loops' or 'step'")
     nu = float(data.get("nu") or 0.0)
-    mesh = section_mesh.mesh_section(loops, max_area=data.get("mesh_size") or None)
+    mesh = section_mesh.mesh_section(
+        loops, max_area=data.get("mesh_size") or None,
+        n_target=int(data.get("n_target") or 3000),
+        n_across=float(data.get("n_across") or 3.0))
     nodes, elements, boundary = mesh["nodes"], mesh["elements"], mesh["boundary"]
     t_mesh = time.time() - t0
 

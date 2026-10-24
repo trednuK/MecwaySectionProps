@@ -172,14 +172,35 @@ faces = [quad(1, [1, 2, 3, 4], [(0, 0), (1, 0), (1, 1), (0, 1)]),
 loops, heal = smw.boundary_loops(faces, smw.selection_plane(faces))
 check("a real slit is kept", len(loops) == 2 and heal["gaps_closed"] == [])
 
-# --- not planar -------------------------------------------------------------
+# --- almost planar: straightened; curved: error -------------------------------
+# (Mecway GUI test 24 Oct 2026: 0.0002 mm out of plane on a 30 mm section)
 faces = grid_faces(2, 1, 0.1, 0.05, 0.0)
-faces[1]["coords"][1] = (0.1, 0.0, 0.001)
+faces[1]["coords"][1] = (0.1, 0.0, 2e-7)
+plane = smw.selection_plane(faces)
+loops, heal = smw.boundary_loops(faces, plane)
+check("2e-7 m out of plane: straightened, deviation reported",
+      0.0 < plane["deviation"] < 2e-7 and len(loops) == 1 and
+      abs(abs(area(loops[0])) - 0.005) < 1e-9)
+
+
+class FakeMw(object):
+    pass
+
+
+job, plane = smw.section_input(FakeMw(), faces, "mesh", "fine")
+check("job: flattened in heal, accuracy fine = 10000 elements",
+      job["heal"].get("flattened") == plane["deviation"] and
+      job["n_target"] == 10000 and job["accuracy"] == "fine")
+job, _ = smw.section_input(FakeMw(), grid_faces(2, 1, 0.1, 0.05, 0.0), "mesh",
+                           "nonsense")
+check("flat faces: nothing flattened; unknown accuracy -> normal",
+      "flattened" not in job["heal"] and job["n_target"] == 3000)
+faces[1]["coords"][1] = (0.1, 0.0, 0.005)
 try:
     smw.selection_plane(faces)
-    check("not planar -> ValueError", False)
+    check("curved (4% of the size) -> ValueError", False)
 except ValueError:
-    check("not planar -> ValueError", True)
+    check("curved (4% of the size) -> ValueError", True)
 try:
     smw.selection_plane([])
     check("no faces -> ValueError", False)

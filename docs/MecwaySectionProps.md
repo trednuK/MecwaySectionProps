@@ -41,6 +41,7 @@ Instellingen (niet nodig in het normale geval) staan in `Scripts\section_setting
 | Sleutel | Betekenis | Standaard |
 |---|---|---|
 | `language` | `nl` of `en` (de knoppen NL/EN in het venster) | de taal van Windows |
+| `accuracy` | `coarse`, `normal`, `fine` of `very_fine` (de keuze *Nauwkeurigheid*) | `normal` |
 | `work_dir` | werkmap voor invoer, resultaat en log | `WorkDir` naast `Scripts` |
 | `aster_python` | pad naar een `python.exe` met numpy en scipy | gevonden in de Code-Aster-installatie |
 
@@ -66,11 +67,17 @@ Instellingen (niet nodig in het normale geval) staan in `Scripts\section_setting
      telt mee. Meerdere aangrenzende CAD-vlakken in hetzelfde vlak worden samengevoegd.
      Het model moet opgeslagen zijn (de koppeling component → STEP-bestand staat in de
      `.liml`).
-4. Klik op **Berekenen**. De berekening (mesh van ±3000 kwadratische driehoeken en de
-   eindige-elementenberekening voor torsie en afschuiving) duurt enkele seconden; de
-   statusregel telt mee.
-5. Lees de tabel en de tekening; *Kopiëren* zet de tabel op het klembord
-   (tab-gescheiden, decimaalteken van Windows). *NL*/*EN* rechtsboven wisselt de taal,
+4. Kies eventueel de **Nauwkeurigheid** (de fijnheid van het mesh waarmee de doorsnede
+   wordt doorgerekend): *Grof* (±1000 kwadratische driehoeken), *Normaal* (±3000,
+   standaard), *Fijn* (±10000) of *Zeer fijn* (±30000); in dunne wanden ook meer
+   elementen over de dikte (2, 3, 4 of 6 rijen). De keuze wordt onthouden en geldt bij de
+   volgende klik op *Berekenen*; de gebruikte fijnheid staat onder de tabel.
+5. Klik op **Berekenen**. De berekening (het mesh en de eindige-elementenberekening voor
+   torsie en afschuiving) duurt enkele seconden (*Zeer fijn* iets langer); de statusregel
+   telt mee.
+6. Lees de tabel en de tekening; *Kopiëren* zet de tabel op het klembord
+   (tab-gescheiden, decimaalteken van Windows), *Afbeelding kopiëren* alleen de tekening
+   (tweemaal zo scherp als op het scherm). *NL*/*EN* rechtsboven wisselt de taal,
    *Eenheid* tussen mm en m.
 
 **Kleine openingen in de rand** worden automatisch gerepareerd, zodat de berekening
@@ -83,6 +90,10 @@ toch kan; elke reparatie staat als opmerking onder de tabel:
   losse einde.
 - *CAD-vlak*: randen waarvan de eindpunten niet precies op elkaar aansluiten worden met
   een rechte lijn verbonden.
+- Beide: liggen de vlakken niet precies in één plat vlak (een mesh of CAD-model met een
+  kleine afwijking), dan worden ze op het best passende vlak geprojecteerd
+  ("rechtgetrokken"); de grootste afwijking staat onder de tabel. Pas bij een afwijking
+  van meer dan 1 % van de afmeting (een gebogen selectie) stopt de berekening.
 - Een opening wordt alleen gesloten tot 2 % van de afmeting van de doorsnede; is hij
   groter, dan stopt de berekening met de plaats van de opening. Een echte sleuf (met
   eigen randen) is geen losse rand en blijft dus open.
@@ -181,7 +192,8 @@ Alle waarden in SI (m, m², m⁴, m⁶), lokaal y = V (hoofdas 1), z = W (hoofda
 ## 6. Nauwkeurigheid en verificatie
 
 De doorsnede wordt opnieuw gemesht met kwadratische driehoeken (tri6, standaard ±3000;
-in dunne wanden zo fijn dat er minstens drie elementen over de dikte komen). Oppervlakte,
+in dunne wanden zo fijn dat er minstens drie elementen over de dikte komen; de keuze
+*Nauwkeurigheid* in §2 verandert beide). Oppervlakte,
 zwaartepunt, traagheden en weerstandsmomenten volgen exact uit de driehoeken; torsie,
 welving en afschuiving uit een eindige-elementenberekening (Pilkey, 2002), dezelfde
 formulering als het Python-pakket sectionproperties dat AreaPropsForAlibre gebruikt.
@@ -207,8 +219,8 @@ de Mecway-elementen; een grof Mecway-mesh beïnvloedt dus alleen de vorm van geb
 
 ## 7. Beperkingen
 
-- Alleen **vlakke** doorsneden: de geselecteerde vlakken moeten in één vlak liggen
-  (afwijking hoogstens 1e-5 van de afmeting).
+- Alleen **vlakke** doorsneden: de geselecteerde vlakken moeten in één vlak liggen; een
+  afwijking tot 1 % van de afmeting wordt rechtgetrokken (§2).
 - *Mesh-vlakken*: de rand is zo nauwkeurig als het mesh. Een cirkel met lineaire
   elementen is een veelhoek; kwadratische elementen volgen een boog via de middenknoop
   (een grove boog van 45° per element mist 0,2 % van de oppervlakte). Gebruik voor

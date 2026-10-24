@@ -36,8 +36,16 @@ from section_utils import log, tr
 # <geometric type="UniformGeneralSection"> in the .liml; mw API reference:
 # "the same as the property's attribute name").
 GENERAL_SECTION = "UniformGeneralSection"
-# Relative tolerance for "the faces lie in one plane".
-PLANE_TOL = 1e-5
+# Relative deviation from one plane (of the size of the selection) that is
+# straightened: the faces are projected onto the best-fitting plane and the
+# deviation is reported (a mesh or CAD model that is not exactly flat, Mecway
+# GUI test of 24 Oct 2026: 0.0002 mm). A larger deviation is a curved
+# selection: error.
+PLANE_TOL = 0.01
+# Accuracy of the analysis: (key, about this many tri6 elements, element rows
+# across a thin wall (section_mesh n_across)). "normal" is the default.
+ACCURACY = (("coarse", 1000, 2.0), ("normal", 3000, 3.0),
+            ("fine", 10000, 4.0), ("very_fine", 30000, 6.0))
 # Tag of the custom model definition the #ASTER-SECTIE lines go into (CCX >
 # Custom model definition; CCX reads '**' lines as comments).
 # MecwayAsterBridge reads every custom text field, every occurrence
@@ -194,10 +202,13 @@ def plane_axes(n_out):
 
 def selection_plane(faces):
     """
-    {"normal", "offset", "u", "v", "size"} of the selected faces; raises
-    ValueError when they do not lie in one plane. The normal points out of
-    the elements (from the element centroid to the face), or follows the
-    node order for shell faces.
+    {"normal", "offset", "u", "v", "size", "deviation"} of the selected
+    faces: the best-fitting plane (area-weighted normal, mean offset) and
+    the largest distance of a node from it. Everything downstream projects
+    onto this plane (x = P.u, y = P.v), so a small deviation is straightened;
+    ValueError when it is larger than PLANE_TOL of the size. The normal
+    points out of the elements (from the element centroid to the face), or
+    follows the node order for shell faces.
     """
     if not faces:
         raise ValueError(tr("Geen vlakken geselecteerd. Selecteer in Mecway "
@@ -241,7 +252,7 @@ def selection_plane(faces):
                                 "%.4g" % (worst * 1e3)))
     u, v = plane_axes(normal)
     return {"normal": normal, "offset": offset, "u": u, "v": v,
-            "size": size}
+            "size": size, "deviation": worst}
 
 
 # Repair of a boundary whose faces do not quite fit together (an imported
@@ -577,17 +588,34 @@ def step_request(mw, faces, plane):
     return {"file": path, "normal": list(plane["normal"]),
             "offset": plane["offset"], "u": list(plane["u"]),
             "v": list(plane["v"]), "points": points,
-            "tol": max(1e-6, 1e-4 * plane["size"])}
+            "tol": max(1e-6, 1e-4 * plane["size"],
+                       2.0 * plane.get("deviation", 0.0))}
 
 
-def section_input(mw, faces, mode):
-    """(job dict for section_analysis, plane) for mode "mesh" or "cad"."""
+def accuracy_values(key):
+    """(n_target, n_across) of an ACCURACY key; "normal" when unknown."""
+    for k, n_target, n_across in ACCURACY:
+        if k == key:
+            return n_target, n_across
+    return accuracy_values("normal")
+
+
+def section_input(mw, faces, mode, accuracy="normal"):
+    """(job dict for section_analysis, plane) for mode "mesh" or "cad".
+    job["heal"]: the repairs (boundary_loops; "flattened" = the deviation
+    from one plane that was straightened, metres)."""
     plane = selection_plane(faces)
-    job = {"nu": 0.0, "mesh_size": None}
+    n_target, n_across = accuracy_values(accuracy)
+    job = {"nu": 0.0, "mesh_size": None, "n_target": n_target,
+           "n_across": n_across, "accuracy": accuracy}
     if mode == "cad":
         job["step"] = step_request(mw, faces, plane)
+        job["heal"] = {}
     else:
         job["loops"], job["heal"] = boundary_loops(faces, plane)
+    # 1e-9 of the size is round-off, not a deviation worth reporting
+    if plane["deviation"] > 1e-9 * plane["size"]:
+        job["heal"]["flattened"] = plane["deviation"]
     return job, plane
 
 

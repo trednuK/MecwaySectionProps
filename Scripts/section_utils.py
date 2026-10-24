@@ -17,6 +17,8 @@
 #   "language":     "nl" or "en" (the NL/EN buttons of the window save it;
 #                   default: the Windows display language)
 #   "work_dir":     work folder; default WorkDir next to the Scripts folder
+#   "accuracy":     coarse, normal, fine or very_fine (section_mecway.ACCURACY;
+#                   the window's Accuracy choice saves it); default normal
 #   "aster_python": python.exe with numpy and scipy; default: found in the
 #                   Code-Aster installation under %LOCALAPPDATA%\code_aster
 #
