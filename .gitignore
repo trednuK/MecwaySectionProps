@@ -1,0 +1,5 @@
+WorkDir/
+__pycache__/
+*.pyc
+Scripts/section_settings.json
+CLAUDE.local.md
