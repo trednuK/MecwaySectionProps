@@ -5,11 +5,15 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 # section_mecway.py
 # Responsibility: the Mecway side of MecwaySectionProps (all mw calls).
+#   prepare(mw, mode, ...)        the way into a calculation: selection, or
+#                                 temporary faces when the model has no mesh
+#   build_temp_faces, discard_temp_mesh, remove_stale_faces
+#                                 temporary faces of a STEP without a mesh
 #   read_selection(mw)            selected faces -> nodes and coordinates
 #   section_input(faces, mode)    plane, 2D frame, boundary loops (mesh) or
 #                                 the STEP request (CAD) for the analysis
-#   run_analysis(job)             section_analysis.py in the Python of the
-#                                 Code-Aster installation (numpy/scipy)
+#   start_analysis(job)           section_analysis.py in a Python with numpy
+#                                 and scipy (section_utils.find_python)
 #   create_general_section(...)   Mecway material with a general section
 #   store_aster_line(...)         #ASTER-SECTIE line as an extra custom
 #                                 model definition (import of a small .liml)
@@ -46,6 +50,12 @@ PLANE_TOL = 0.01
 # across a thin wall (section_mesh n_across)). "normal" is the default.
 ACCURACY = (("coarse", 1000, 2.0), ("normal", 3000, 3.0),
             ("fine", 10000, 4.0), ("very_fine", 30000, 6.0))
+# Component of the temporary faces of a STEP without a mesh. A name of its own:
+# one that is left behind (Mecway or the script stopped) is removed at the next
+# start of the window.
+TEMP_COMPONENT = "SectionProps_tijdelijk"
+# Vector exists only in the main script, which sets this.
+Vector = None
 # Tag of the custom model definition the #ASTER-SECTIE lines go into (CCX >
 # Custom model definition; CCX reads '**' lines as comments).
 # MecwayAsterBridge reads every custom text field, every occurrence
@@ -106,16 +116,17 @@ def axis_name(vec):
 # ==========================================
 # READING THE SELECTION (mw)
 # ==========================================
-def read_selection(mw):
+def read_selection(mw, face_ids=None):
     """
-    The selected faces as [{"eid", "face", "nodes", "coords", "centre"}]
-    (coords per node in metres; centre = centroid of the element, for the
-    outward normal). Faces only: in element or node selection mode
-    mw.selected_faces() is empty.
+    The faces (default: the selected ones) as [{"eid", "face", "nodes",
+    "coords", "centre"}] (coords per node in metres; centre = centroid of the
+    element, for the outward normal). Faces only: in element or node
+    selection mode mw.selected_faces() is empty, and so it is for a surface
+    selected in Mecway's Geometry view.
     """
     faces = []
     centres = {}
-    for fid in mw.selected_faces():
+    for fid in (mw.selected_faces() if face_ids is None else face_ids):
         eid = int(fid.element_id)
         nodes = [int(n) for n in mw.face_nodes(fid)]
         coords = []
@@ -186,6 +197,17 @@ def _face_corners(nodes, coords):
     return best[0], dict(enumerate(best[1]))
 
 
+def no_faces_text():
+    """Text for an empty selection (mw.selected_faces() gives nothing for
+    a surface selected in the Geometry view, Mecway 35)."""
+    return tr("Geen mesh-vlakken geselecteerd (een selectie in de Geometry-"
+              "weergave is voor scripts onzichtbaar). Toon de mesh, kies "
+              "Select faces (f) en klik op een vlak.",
+              "No mesh faces selected (a selection in the Geometry view is "
+              "invisible to scripts). Show the mesh, choose Select faces (f) "
+              "and click a face.")
+
+
 def plane_axes(n_out):
     """(u, v) in-plane axes as AreaPropsForAlibre: the face seen from
     outside, v = global Y projected (or -Z/+Z for a face normal to Y),
@@ -211,10 +233,7 @@ def selection_plane(faces):
     follows the node order for shell faces.
     """
     if not faces:
-        raise ValueError(tr("Geen vlakken geselecteerd. Selecteer in Mecway "
-                            "(vlakselectie) de vlakken van de doorsnede.",
-                            "No faces selected. Select the faces of the "
-                            "section in Mecway (face selection)."))
+        raise ValueError(no_faces_text())
     total = (0.0, 0.0, 0.0)
     points = []
     for f in faces:
@@ -508,7 +527,7 @@ def boundary_loops(faces, plane):
 # ==========================================
 # CAD (STEP) OF THE SELECTION
 # ==========================================
-_GEOMETRY_RE = re.compile(r'<geometry\b([^>]*)>')
+_GEOMETRY_RE = re.compile(r'<(/?)(assembly|geometry)\b([^>]*)>')
 _ELSET_RE = re.compile(r'<elset\b([^>]*)>')
 _ATTR_RE = re.compile(r'(\w+)="([^"]*)"')
 
@@ -520,19 +539,29 @@ def _xml_unescape(text):
 
 def liml_geometries(liml_path):
     """({geometry id: STEP path}, {component: geometry id}) from the saved
-    .liml (attributes only, read as text: fast also for a big model)."""
+    .liml (attributes only, read as text: fast also for a big model). The
+    geometries of a STEP assembly have no file of their own: Mecway 35 puts
+    them in an <assembly filename=...>, one per instance."""
     geoms, comps = {}, {}
     folder = os.path.dirname(os.path.abspath(liml_path))
+
+    def full(attrs):
+        path = _xml_unescape(attrs["filename"])
+        return path if os.path.isabs(path) else os.path.join(folder, path)
+
+    assembly = None
     with io.open(liml_path, encoding="utf-8", errors="replace") as f:
         for line in f:
-            if "<geometry" in line:
+            if "assembly" in line or "<geometry" in line:
                 for m in _GEOMETRY_RE.finditer(line):
-                    attrs = dict(_ATTR_RE.findall(m.group(1)))
-                    if "id" in attrs and "filename" in attrs:
-                        path = _xml_unescape(attrs["filename"])
-                        if not os.path.isabs(path):
-                            path = os.path.join(folder, path)
-                        geoms[attrs["id"]] = path
+                    attrs = dict(_ATTR_RE.findall(m.group(3)))
+                    if m.group(2) == "assembly":
+                        assembly = None if m.group(1) or \
+                            "filename" not in attrs else full(attrs)
+                    elif "id" in attrs and "filename" in attrs:
+                        geoms[attrs["id"]] = full(attrs)
+                    elif "id" in attrs and assembly:
+                        geoms[attrs["id"]] = assembly
             if "<elset" in line:
                 for m in _ELSET_RE.finditer(line):
                     attrs = dict(_ATTR_RE.findall(m.group(1)))
@@ -541,55 +570,99 @@ def liml_geometries(liml_path):
     return geoms, comps
 
 
-def step_request(mw, faces, plane):
+class NeedStepFile(Exception):
+    """The STEP file is not known (e.g. a model that is not saved): the
+    window asks the user. component None: for the model as a whole."""
+
+    def __init__(self, component):
+        Exception.__init__(self, component)
+        self.component = component
+
+
+def _stem(path):
+    return os.path.splitext(os.path.basename(path))[0].lower()
+
+
+def step_file(mw, component, known=None):
     """
-    The "step" block for section_analysis (section_step.find_faces and
-    face_loops_2d): the STEP file of the component of the selected faces
-    and the centroids of those faces. ValueError with the reason when the
-    CAD route is not possible.
+    Path of the STEP file of a component: the link in the saved .liml (the
+    component's geomid; a component meshed after the last save has no geomid
+    yet, but generate_mesh names it after the STEP file, tested in Mecway
+    35), else the file the user pointed at in this window (known:
+    {component: path}). NeedStepFile when neither gives an existing file:
+    Mecway's API has no call for the file of a geometry.
     """
     liml = mw.file_name()
-    if not liml or not os.path.isfile(liml):
-        raise ValueError(tr("CAD-vlak: sla het model eerst op (de "
-                            "STEP-koppeling staat in de .liml).",
-                            "CAD face: save the model first (the STEP link "
-                            "is read from the .liml)."))
-    geoms, comps = liml_geometries(liml)
-    ids = set()
-    for f in faces:
-        comp = mw.element_component(f["eid"])
-        if comp not in comps:
-            raise ValueError(tr("CAD-vlak: component '{0}' is niet uit een "
-                                "STEP-geometrie gemesht (of het model is "
-                                "daarna niet opgeslagen). Gebruik 'Mesh-"
-                                "vlakken'.",
-                                "CAD face: component '{0}' was not meshed "
-                                "from a STEP geometry (or the model was not "
-                                "saved since). Use 'Mesh faces'.").format(
-                                    comp))
-        ids.add(comps[comp])
-    if len(ids) > 1:
-        raise ValueError(tr("CAD-vlak: de vlakken horen bij meer dan één "
-                            "STEP-geometrie.",
-                            "CAD face: the faces belong to more than one "
-                            "STEP geometry."))
-    gid = ids.pop()
-    path = geoms.get(gid)
-    if not path or not os.path.isfile(path):
-        raise ValueError(tr("CAD-vlak: STEP-bestand van geometrie {0} niet "
-                            "gevonden: {1}",
-                            "CAD face: STEP file of geometry {0} not found: "
-                            "{1}").format(gid, path))
+    if liml and os.path.isfile(liml):
+        geoms, comps = liml_geometries(liml)
+        if comps.get(component) in geoms:
+            found = [geoms[comps[component]]]
+        else:
+            found = [p for p in geoms.values()
+                     if _stem(p) == component.lower()]
+            if not found and len(geoms) == 1:
+                found = list(geoms.values())
+        for path in found:
+            if os.path.isfile(path):
+                return path
+    path = (known or {}).get(component)
+    if path and os.path.isfile(path):
+        return path
+    raise NeedStepFile(component)
+
+
+def model_step_files(mw, known=None):
+    """All STEP files of the model: the saved .liml (it may be older than the
+    open model), else the file the user pointed at (known[""]). NeedStepFile
+    (None) when that gives no existing file."""
+    paths = []
+    liml = mw.file_name()
+    if liml and os.path.isfile(liml):
+        # a set: the instances of an assembly share one file
+        paths = sorted(set(p for p in liml_geometries(liml)[0].values()
+                           if os.path.isfile(p)))
+    if not paths:
+        path = (known or {}).get("")
+        if not path or not os.path.isfile(path):
+            raise NeedStepFile(None)
+        paths = [path]
+    return paths
+
+
+def step_block(path, faces, plane, hint=None):
+    """The "step" block for section_analysis (section_step.find_placed and
+    placed_loops_2d): the file, the plane, the centroids of the faces and,
+    when the faces are known, hint."""
     points = []
     for f in faces:
         corners, _ = _face_corners(f["nodes"], f["coords"])
         pts = [f["coords"][i] for i in corners]
         points.append(list(_mul(reduce(_add, pts), 1.0 / len(pts))))
-    return {"file": path, "normal": list(plane["normal"]),
-            "offset": plane["offset"], "u": list(plane["u"]),
-            "v": list(plane["v"]), "points": points,
-            "tol": max(1e-6, 1e-4 * plane["size"],
-                       2.0 * plane.get("deviation", 0.0))}
+    block = {"file": path, "normal": list(plane["normal"]),
+             "offset": plane["offset"], "u": list(plane["u"]),
+             "v": list(plane["v"]), "points": points,
+             "tol": max(1e-6, 1e-4 * plane["size"],
+                        2.0 * plane.get("deviation", 0.0))}
+    if hint:
+        block["hint"] = hint
+    return block
+
+
+def step_request(mw, faces, plane, known=None):
+    """
+    The "step" block of faces of the user's own mesh: the STEP file of their
+    component. NeedStepFile when the file is not known; ValueError when the
+    faces belong to more than one file.
+    """
+    paths = set()
+    for comp in set(mw.element_component(f["eid"]) for f in faces):
+        paths.add(step_file(mw, comp, known))
+    if len(paths) > 1:
+        raise ValueError(tr("CAD-vlak: de vlakken horen bij meer dan één "
+                            "STEP-bestand.",
+                            "CAD face: the faces belong to more than one "
+                            "STEP file."))
+    return step_block(paths.pop(), faces, plane)
 
 
 def accuracy_values(key):
@@ -600,17 +673,25 @@ def accuracy_values(key):
     return accuracy_values("normal")
 
 
-def section_input(mw, faces, mode, accuracy="normal"):
-    """(job dict for section_analysis, plane) for mode "mesh" or "cad".
-    job["heal"]: the repairs (boundary_loops; "flattened" = the deviation
-    from one plane that was straightened, metres)."""
+def section_input(mw, faces, mode, accuracy="normal", known=None):
+    """(job dict for section_analysis, plane) for mode "mesh" or "cad"
+    (known: step_file). job["heal"]: the repairs (boundary_loops;
+    "flattened" = the deviation from one plane that was straightened,
+    metres)."""
     plane = selection_plane(faces)
     n_target, n_across = accuracy_values(accuracy)
     job = {"nu": 0.0, "mesh_size": None, "n_target": n_target,
            "n_across": n_across, "accuracy": accuracy}
     if mode == "cad":
-        job["step"] = step_request(mw, faces, plane)
+        job["step"] = step_request(mw, faces, plane, known)
         job["heal"] = {}
+        # when the STEP does not have the face, the mesh boundary is used
+        # (only for the user's own mesh, see prepare)
+        try:
+            job["fallback_loops"], job["fallback_heal"] = boundary_loops(
+                faces, plane)
+        except ValueError:
+            pass
     else:
         job["loops"], job["heal"] = boundary_loops(faces, plane)
     # 1e-9 of the size is round-off, not a deviation worth reporting
@@ -620,11 +701,240 @@ def section_input(mw, faces, mode, accuracy="normal"):
 
 
 # ==========================================
+# TEMPORARY FACES OF A STEP WITHOUT A MESH
+# ==========================================
+# Mecway's API has no access to a surface selected in the Geometry view, and
+# no mesh means no faces to select. mw.generate_mesh() would mesh every part
+# (192 000 elements and 37 s on a small assembly). So the planar faces of the
+# STEP file are shown as tri3 elements at their global position in a temporary
+# component (section_analysis.list_faces); the user clicks one in Mecway and
+# nothing is computed on these triangles: they only tell which STEP face is
+# meant. Everything is removed after the calculation.
+
+def _delete_added(mw, elements, nodes_before, components):
+    """Remove these elements, the nodes that were not there before and that
+    no other element uses, and these components when they are empty."""
+    alive = set(int(e) for e in mw.all_elements())
+    gone = [e for e in elements if e in alive]
+    if gone:
+        mw.delete_elements(gone)
+    used = set()
+    for e in mw.all_elements():
+        used.update(int(n) for n in mw.nodes(e))
+    nodes = [int(n) for n in mw.all_nodes()
+             if int(n) not in nodes_before and int(n) not in used]
+    if nodes:
+        mw.delete_nodes(nodes)
+    for comp in components:
+        if comp in mw.components() and not list(mw.component_elements(comp)):
+            mw.delete_component(comp)
+
+
+def remove_stale_faces(mw):
+    """Remove a temporary component that was left behind. True when one
+    was found."""
+    stale = [c for c in mw.components()
+             if str(c).startswith(TEMP_COMPONENT)]
+    if not stale:
+        return False
+    elements = []
+    nodes = set()
+    for comp in stale:
+        for e in mw.component_elements(comp):
+            elements.append(int(e))
+            nodes.update(int(n) for n in mw.nodes(e))
+    others = set(int(n) for n in mw.all_nodes()) - nodes
+    _delete_added(mw, elements, others, stale)
+    mw.display()
+    log("INFO: MecwaySectionProps: left-over temporary faces removed.")
+    return True
+
+
+def build_temp_faces(mw, faces):
+    """The faces of section_analysis.list_faces as tri3 elements in a
+    temporary component. Returns what is needed to read a pick and to remove
+    them again."""
+    remove_stale_faces(mw)
+    before = set(int(n) for n in mw.all_nodes())
+    comp = mw.new_component(TEMP_COMPONENT) or TEMP_COMPONENT
+    owner = {}
+    try:
+        for index, face in enumerate(faces):
+            ids = [mw.new_node(Vector(p[0], p[1], p[2]))
+                   for p in face["points"]]
+            for tri in face["triangles"]:
+                eid = mw.new_element("tri3", [ids[k] for k in tri], comp)
+                owner[int(eid)] = index
+    except Exception:
+        _delete_added(mw, sorted(owner), before, [comp])
+        raise
+    try:
+        mw.set_model_active()
+        mw.display()
+    except Exception as e:
+        log("WARNING: MecwaySectionProps: display: {0}".format(e))
+    log("INFO: MecwaySectionProps: {0} temporary faces, {1} triangles."
+        .format(len(faces), len(owner)))
+    return {"elements": sorted(owner), "nodes_before": before,
+            "components": [comp], "owner": owner, "faces": faces}
+
+
+def temp_mesh_alive(mw, temp):
+    """False when the temporary faces are gone (removed in Mecway itself)."""
+    if not temp:
+        return False
+    alive = set(int(e) for e in mw.all_elements())
+    return any(e in alive for e in temp["elements"])
+
+
+def discard_temp_mesh(mw, temp):
+    """Remove what build_temp_faces added and nothing else."""
+    _delete_added(mw, temp["elements"], temp["nodes_before"],
+                  temp["components"])
+    mw.display()
+    log("INFO: MecwaySectionProps: temporary faces removed.")
+
+
+def picked_faces(mw, temp):
+    """Indices in temp["faces"] of what is selected in Mecway: faces in
+    face mode, elements in element mode."""
+    eids = [int(f.element_id) for f in mw.selected_faces()]
+    eids.extend(int(e) for e in mw.selected_elements())
+    return sorted(set(temp["owner"][e] for e in eids if e in temp["owner"]))
+
+
+def temp_job(mw, temp, picked, accuracy):
+    """(job, plane, faces) for picked temporary faces. Everything after this
+    is the route of a selection; only the STEP faces are already known
+    (hint), so nothing is searched."""
+    chosen = [temp["faces"][i] for i in picked]
+    if len(set(f["file"] for f in chosen)) > 1:
+        raise ValueError(tr("CAD-vlak: de vlakken horen bij meer dan één "
+                            "STEP-bestand.",
+                            "CAD face: the faces belong to more than one "
+                            "STEP file."))
+    faces = []
+    for eid, index in sorted(temp["owner"].items()):
+        if index in picked:
+            nodes = [int(n) for n in mw.nodes(eid)]
+            coords = []
+            for n in nodes:
+                p = mw.node(n)
+                coords.append((float(p.x), float(p.y), float(p.z)))
+            faces.append({"eid": eid, "face": 1, "nodes": nodes,
+                          "coords": coords,
+                          "centre": _mul(reduce(_add, coords), 1.0 / 3.0)})
+    plane = selection_plane(faces)
+    n_target, n_across = accuracy_values(accuracy)
+    occurrences = {}
+    for f in chosen:
+        occurrences.setdefault(f["occurrence"], []).append(f["face"])
+    hint = {"hits": [[k, ids] for k, ids in sorted(occurrences.items())]}
+    job = {"nu": 0.0, "mesh_size": None, "n_target": n_target,
+           "n_across": n_across, "accuracy": accuracy,
+           "step": step_block(chosen[0]["file"], faces, plane, hint),
+           "heal": {"temp_mesh": True}}
+    return job, plane, faces
+
+
+def prepare(mw, mode, accuracy="normal", temp=None, known=None):
+    """
+    The way into a calculation, on the script thread. Returns a dict with
+    "temp" (the temporary faces or None) and "state":
+    "ready": with "faces", "job" and "plane";
+    "pick": temporary faces exist and the user must click one;
+    "list": the model has no mesh: list the faces of "paths" and call
+    build_temp_faces (not here: the listing is a process);
+    "step": the STEP file of "component" is not known (None: of the model).
+    A model with its own mesh is never touched.
+    """
+    if temp is not None and not temp_mesh_alive(mw, temp):
+        temp = None
+    if temp is not None:
+        picked = picked_faces(mw, temp)
+        if picked:
+            job, plane, faces = temp_job(mw, temp, picked, accuracy)
+            return {"state": "ready", "faces": faces, "job": job,
+                    "plane": plane, "temp": temp}
+        if not list(mw.selected_faces()):
+            return {"state": "pick", "temp": temp}
+        # something else is selected: the user's own mesh, made meanwhile
+        discard_temp_mesh(mw, temp)
+        temp = None
+    face_ids = list(mw.selected_faces())
+    if not face_ids:
+        if list(mw.all_elements()):
+            raise ValueError(no_faces_text())
+        try:
+            return {"state": "list", "paths": model_step_files(mw, known),
+                    "temp": None}
+        except NeedStepFile as e:
+            return {"state": "step", "component": e.component, "temp": None}
+    faces = read_selection(mw, face_ids)
+    try:
+        job, plane = section_input(mw, faces, mode, accuracy, known)
+    except NeedStepFile as e:
+        return {"state": "step", "component": e.component, "temp": None}
+    return {"state": "ready", "faces": faces, "job": job, "plane": plane,
+            "temp": None}
+
+
+# ==========================================
 # THE ANALYSIS PROCESS
 # ==========================================
-def aster_python():
-    """python.exe with numpy and scipy (section_utils.aster_python)."""
-    return su.aster_python()
+class MissingPython(Exception):
+    """No Python with numpy and scipy (info: section_utils.find_python)."""
+
+    def __init__(self, info):
+        Exception.__init__(self, "no Python with numpy and scipy")
+        self.info = info
+
+
+def missing_python_text(info):
+    """The prerequisite in words; with info["pip"] it ends in the question
+    whether to install."""
+    if info.get("own") and not info.get("pip"):
+        head = tr(u"De Python uit de instellingen is niet gevonden: {0}",
+                  u"The Python in the settings was not found: {0}").format(
+                      info["own"])
+    elif info.get("pip"):
+        head = tr(u"Python is gevonden, maar zonder (recente) numpy en scipy: "
+                  u"{0}",
+                  u"Python was found, but without (recent) numpy and scipy: "
+                  u"{0}").format(info["pip"])
+    else:
+        head = tr(u"Python 3 is niet gevonden.", u"Python 3 was not found.")
+    text = tr(u"Voorwaarde: MecwaySectionProps rekent met Python 3 met numpy "
+              u"en scipy.\n\n",
+              u"Prerequisite: MecwaySectionProps calculates with Python 3 "
+              u"with numpy and scipy.\n\n") + head + u"\n\n"
+    if info.get("pip"):
+        return text + tr(u"Installeer ze met:\n{0}\n\nNu installeren in een "
+                         u"apart venster?",
+                         u"Install them with:\n{0}\n\nInstall now in a "
+                         u"separate window?").format(
+                             su.pip_command(info["pip"]))
+    return text + tr(u"Installeer Python 3 van python.org en daarna:\n"
+                     u"python -m pip install numpy scipy\n\nOf zet het pad "
+                     u"van een python.exe met numpy en scipy als 'python' in "
+                     u"{0}.",
+                     u"Install Python 3 from python.org and then:\n"
+                     u"python -m pip install numpy scipy\n\nOr put the path "
+                     u"of a python.exe with numpy and scipy as 'python' in "
+                     u"{0}.").format(su.SETTINGS_PATH)
+
+
+def install_packages(python):
+    """Run pip for numpy and scipy in a console window of its own, so the
+    user sees what happens; only after the user's yes in the window."""
+    import clr
+    clr.AddReference("System")
+    from System.Diagnostics import Process, ProcessStartInfo
+    info = ProcessStartInfo("cmd.exe")
+    info.Arguments = u'/c "{0} & pause"'.format(su.pip_command(python))
+    info.UseShellExecute = True
+    log("INFO: MecwaySectionProps: {0}".format(su.pip_command(python)))
+    Process.Start(info)
 
 
 def work_folder():
@@ -632,25 +942,20 @@ def work_folder():
     return su.work_dir()
 
 
-def start_analysis(job):
-    """
-    Write the job and start section_analysis.py without a console window.
-    Returns (process, result path). Raises RuntimeError when Code-Aster's
-    Python is missing.
-    """
-    python = aster_python()
+_STDERR = []         # error output of the running process
+
+
+def _start(job, name):
+    """Write the job and start section_analysis.py without a console window.
+    Returns (process, result path). Raises MissingPython when no Python
+    with numpy and scipy is found (the window checks that first)."""
+    found = su.find_python()
+    python = found["path"]
     if not python:
-        raise RuntimeError(tr(u"Python van Code-Aster niet gevonden (nodig "
-                              u"voor numpy/scipy). Installeer Code-Aster, of "
-                              u"zet het pad naar zijn python.exe als "
-                              u"'aster_python' in {0}.",
-                              u"Code-Aster's Python not found (needed for "
-                              u"numpy/scipy). Install Code-Aster, or put the "
-                              u"path of its python.exe as 'aster_python' in "
-                              u"{0}.").format(su.SETTINGS_PATH))
+        raise MissingPython(found)
     folder = work_folder()
-    src = os.path.join(folder, "section_input.json")
-    dst = os.path.join(folder, "section_results.json")
+    src = os.path.join(folder, name + "_input.json")
+    dst = os.path.join(folder, name + "_results.json")
     if os.path.isfile(dst):
         os.remove(dst)
     with io.open(src, "w", encoding="utf-8") as f:
@@ -662,23 +967,63 @@ def start_analysis(job):
     clr.AddReference("System")
     from System.Diagnostics import Process, ProcessStartInfo
     info = ProcessStartInfo(python)
-    info.Arguments = u'-I "{0}" "{1}" "{2}"'.format(script, src, dst)
+    info.Arguments = u'{0} "{1}" "{2}" "{3}"'.format(su.PYTHON_FLAGS, script,
+                                                     src, dst)
     info.UseShellExecute = False
     info.CreateNoWindow = True
     info.RedirectStandardError = True
     info.WorkingDirectory = folder
     log("INFO: MecwaySectionProps: {0} {1}".format(python, info.Arguments))
-    return Process.Start(info), dst
+    del _STDERR[:]
+
+    def collect(sender, e):
+        # read while it runs: a full pipe would block the process
+        if e.Data is not None:
+            _STDERR.append(e.Data)
+    proc = Process()
+    proc.StartInfo = info
+    proc.ErrorDataReceived += collect
+    proc.Start()
+    proc.BeginErrorReadLine()
+    return proc, dst
+
+
+def start_analysis(job):
+    """Start the calculation: (process, result path)."""
+    return _start(job, "section")
+
+
+def list_step_faces(paths, timeout=120):
+    """(faces, unplaced): the planar faces of STEP files at their global
+    position, with triangles (section_analysis.list_faces), and the number of
+    faces the assembly does not place. Waits for the process."""
+    faces = []
+    unplaced = 0
+    for path in paths:
+        proc, dst = _start({"list_faces": path}, "section_faces")
+        if not proc.WaitForExit(int(timeout * 1000)):
+            proc.Kill()
+            raise RuntimeError(tr("Het lezen van de STEP duurde te lang.",
+                                  "Reading the STEP file took too long."))
+        res = read_results(proc, dst)
+        unplaced += res.get("unplaced") or 0
+        faces.extend(res["faces"])
+    if unplaced:
+        log("WARNING: MecwaySectionProps: {0} faces not placed by the "
+            "assembly.".format(unplaced))
+    if not faces:
+        raise ValueError(tr("Geen vlakke vlakken gevonden in de STEP.",
+                            "No planar faces found in the STEP file."))
+    return faces, unplaced
 
 
 def read_results(proc, dst):
     """Results dict of a finished process; RuntimeError on a failure."""
-    stderr = u""
-    try:
-        stderr = proc.StandardError.ReadToEnd()
-    except Exception:
-        pass
+    proc.WaitForExit()      # also waits for the last error output
+    stderr = u"\n".join(_STDERR)
     if not os.path.isfile(dst):
+        if "ImportError" in stderr or "ModuleNotFoundError" in stderr:
+            su.forget_python()
         raise RuntimeError(tr("De berekening gaf geen resultaat.\n{0}",
                               "The analysis produced no result.\n{0}")
                            .format(stderr[-1500:]))

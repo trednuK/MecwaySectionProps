@@ -18,7 +18,7 @@
 #
 # Flow: "Calculate" reads the selected faces (section_mecway.read_selection),
 # builds the boundary (mesh faces) or the STEP request (CAD face), starts
-# section_analysis.py in Code-Aster's Python and shows the table and the
+# section_analysis.py in Python (numpy, scipy) and shows the table and the
 # plot. "Create general section" makes a Mecway material from the result
 # and, if ticked, stores the extra Code-Aster data as an #ASTER-SECTIE line
 # (section_mecway.store_aster_line: imported as an extra custom model
@@ -52,6 +52,46 @@ T = {
     "mode_cad": (u"CAD-vlak (exacte STEP-rand)",
                  u"CAD face (exact STEP boundary)"),
     "calc": (u"Berekenen", u"Calculate"),
+    "prep": (u"Bezig met voorbereiden...", u"Preparing..."),
+    "temp_pick": (u"Een selectie in de Geometry-weergave is voor scripts "
+                  u"onzichtbaar. Daarom staan de vlakke STEP-vlakken nu als "
+                  u"tijdelijke vlakjes in het model (geen mesh).\n\n"
+                  u"1. Toon het model in Mecway en kies Select faces (toets "
+                  u"f).\n2. Klik op het vlak van de doorsnede.\n"
+                  u"3. Klik hier op Berekenen.\n\n"
+                  u"Na de berekening worden de vlakjes weer verwijderd.",
+                  u"A selection in the Geometry view is invisible to scripts. "
+                  u"So the planar STEP faces are now in the model as temporary "
+                  u"faces (not a mesh).\n\n"
+                  u"1. Show the model in Mecway and choose Select faces (key "
+                  u"f).\n2. Click the face of the section.\n"
+                  u"3. Click Calculate here.\n\n"
+                  u"The faces are removed after the calculation."),
+    "temp_left": (u"De tijdelijke vlakjes konden niet worden verwijderd "
+                  u"(component SectionProps_tijdelijk): verwijder ze zelf.",
+                  u"The temporary faces could not be removed (component "
+                  u"SectionProps_tijdelijk): remove them yourself."),
+    "temp_unplaced": (u"Let op: {0} vlakken uit de STEP konden niet worden "
+                      u"geplaatst en ontbreken.",
+                      u"Note: {0} faces of the STEP file could not be placed "
+                      u"and are missing."),
+    "temp_wait": (u"Klik in Mecway op een vlak en daarna op Berekenen.",
+                  u"Click a face in Mecway, then Calculate."),
+    "step_title": (u"STEP-bestand van {0}", u"STEP file of {0}"),
+    "step_model": (u"het model", u"the model"),
+    "step_need": (u"Zonder STEP-bestand kan het vlak niet worden gekozen.",
+                  u"Without a STEP file the face cannot be chosen."),
+    "py_wait": (u"Klik op Berekenen als de installatie klaar is.",
+                u"Click Calculate when the installation has finished."),
+    "py_need": (u"Voorwaarde ontbreekt: Python 3 met numpy en scipy.",
+                u"Prerequisite missing: Python 3 with numpy and scipy."),
+    "n_temp": (u"Vlak gekozen op tijdelijke vlakjes; die zijn weer "
+               u"verwijderd.",
+               u"Face chosen on temporary faces, which have been removed."),
+    "n_fallback": (u"Geen STEP-vlak gevonden op deze plek: gerekend met de "
+                   u"rand van de mesh ({0}).",
+                   u"No STEP face found at this place: calculated with the "
+                   u"boundary of the mesh ({0})."),
     "busy": (u"Bezig met berekenen... {0} s", u"Calculating... {0} s"),
     "unit": (u"Eenheid:", u"Unit:"),
     "copy": (u"Kopiëren", u"Copy"),
@@ -264,6 +304,10 @@ def heal_notes(heal, lang):
     notes = []
     if not heal:
         return notes
+    if heal.get("temp_mesh"):
+        notes.append(tx("n_temp", lang))
+    if heal.get("cad_fallback"):
+        notes.append(tx("n_fallback", lang).format(heal["cad_fallback"][:120]))
     if heal.get("flattened"):
         dec = u"," if lang == "nl" else u"."
         notes.append(tx("n_flat", lang).format(
@@ -623,6 +667,8 @@ class _Window(object):
         self.unit = "mm"
         self.accuracy = su.settings().get("accuracy") or "normal"
         self.mode = "mesh"
+        self.temp = None            # temporary faces (section_mecway)
+        self.step_paths = {}        # STEP files the user pointed at
         self.res = None
         self.plane = None
         self.source = ("faces", 0)
@@ -1039,8 +1085,10 @@ class _Window(object):
     # ---------------- events ----------------
     def _on_shown(self):
         try:
-            self.components = self.caller.call(
-                lambda: smw.components_info(self.mw))
+            def start():
+                smw.remove_stale_faces(self.mw)
+                return smw.components_info(self.mw)
+            self.components = self.caller.call(start)
             lines = [c for c, _, is_line in self.components if is_line]
             if self.component is None and len(lines) == 1:
                 self.component = lines[0]
@@ -1078,17 +1126,99 @@ class _Window(object):
                 pass
             self.busy = None
         self.timer.Stop()
+        try:
+            self._drop_temp()
+        except Exception:
+            log("ERROR: MecwaySectionProps: {0}".format(
+                traceback.format_exc()))
+
+    def _drop_temp(self):
+        """Remove the temporary faces, if any; forgotten only when that
+        worked, so a next calculation or the closing of the window tries
+        again."""
+        temp = self.temp
+        if temp is None:
+            return
+
+        def work():
+            smw.discard_temp_mesh(self.mw, temp)
+            return smw.components_info(self.mw)
+        self.components = self.caller.call(work)
+        self.temp = None
+        if self.component not in [c for c, _, _ in self.components]:
+            self.component = None
+
+    def _python_ready(self):
+        """True when the prerequisite is there; otherwise the user is told
+        and may have pip install it."""
+        F = self.F
+        found = su.find_python(refresh=False)
+        if found["path"]:
+            return True
+        text = smw.missing_python_text(found)
+        if found.get("pip"):
+            answer = F.MessageBox.Show(self.form, text, PANEL_TITLE,
+                                       F.MessageBoxButtons.YesNo,
+                                       F.MessageBoxIcon.Warning)
+            if answer == F.DialogResult.Yes:
+                smw.install_packages(found["pip"])
+                self._set_status(self.t("py_wait"))
+                return False
+        else:
+            F.MessageBox.Show(self.form, text, PANEL_TITLE,
+                              F.MessageBoxButtons.OK,
+                              F.MessageBoxIcon.Warning)
+        self._set_status(self.t("py_need"), True)
+        return False
+
+    def _ask_step(self, component):
+        """The STEP file of a component (None: of the model) from the user,
+        remembered while the window is open; None when cancelled."""
+        F = self.F
+        dlg = F.OpenFileDialog()
+        dlg.Title = self.t("step_title").format(component or
+                                                self.t("step_model"))
+        dlg.Filter = u"STEP (*.step;*.stp)|*.step;*.stp"
+        if component:
+            dlg.FileName = u"{0}.step".format(component)
+        if dlg.ShowDialog(self.form) != F.DialogResult.OK:
+            return None
+        self.step_paths[component or u""] = dlg.FileName
+        return dlg.FileName
 
     def on_calculate(self):
         if self.busy is not None:
             return
+        self._set_status(self.t("prep"))
+        self.form.Refresh()
+        if not self._python_ready():
+            return
         mode, accuracy = self.mode, self.accuracy
-
-        def gather():
-            faces = smw.read_selection(self.mw)
-            job, plane = smw.section_input(self.mw, faces, mode, accuracy)
-            return faces, job, plane
-        faces, job, plane = self.caller.call(gather)
+        while True:
+            state = self.caller.call(lambda: smw.prepare(
+                self.mw, mode, accuracy, self.temp, self.step_paths))
+            self.temp = state["temp"]
+            if state["state"] == "pick":
+                self._set_status(self.t("temp_wait"))
+                return
+            if state["state"] == "list":
+                faces, unplaced = smw.list_step_faces(state["paths"])
+                self.temp = self.caller.call(
+                    lambda: smw.build_temp_faces(self.mw, faces))
+                self._set_status(self.t("temp_wait"))
+                text = self.t("temp_pick")
+                if unplaced:
+                    text += u"\n\n" + self.t("temp_unplaced").format(unplaced)
+                self.F.MessageBox.Show(self.form, text, PANEL_TITLE)
+                return
+            if state["state"] != "step":
+                break
+            if self._ask_step(state["component"]) is None:
+                if state["component"] is None:
+                    self._set_status(self.t("step_need"), True)
+                    return
+                mode = "mesh"       # cancelled: the boundary of the mesh
+        faces, job, plane = state["faces"], state["job"], state["plane"]
         proc, dst = smw.start_analysis(job)
         self.busy = (proc, dst, time.time(), faces, job, plane)
         self._set_status(self.t("busy").format(0))
@@ -1134,14 +1264,25 @@ class _Window(object):
         self.heal = dict(job.get("heal") or {})
         if res.get("gaps_closed"):
             self.heal["gaps_closed"] = res["gaps_closed"]
+        if res.get("cad_fallback"):
+            self.heal.update(job.get("fallback_heal") or {})
+            self.heal["cad_fallback"] = res["cad_fallback"]
         res["accuracy"] = job.get("accuracy")
+        left = False
+        try:
+            self._drop_temp()
+        except Exception:
+            # e.g. Mecway's free edition: no scripts above 1000 nodes
+            left = True
+            log("ERROR: MecwaySectionProps: {0}".format(
+                traceback.format_exc()))
         # (text key, argument): formatted in the language of each render
-        if "step" in job:
+        if "step" in job and not res.get("cad_fallback"):
             self.source = ("cad_faces", u", ".join(
                 u"#{0}".format(i) for i in res.get("face_ids", [])))
         else:
             self.source = ("faces", len(faces))
-        self._set_status(u"")
+        self._set_status(self.t("temp_left") if left else u"", left)
         log("INFO: MecwaySectionProps: A = {0} m2, I11 = {1} m4, I22 = {2} "
             "m4, J = {3} m4 ({4} s).".format(
                 res.get("area"), res.get("i11_c"), res.get("i22_c"),
@@ -1208,7 +1349,7 @@ class _Window(object):
 
 
 # ==========================================
-# THE PLOT (System.Drawing, no matplotlib in Code-Aster's Python)
+# THE PLOT (System.Drawing, no matplotlib in the Python used)
 # ==========================================
 def draw_plot(res, plane, lang, unit, w, h, k=1.0):
     """Bitmap w x h of the section: filled loops (even-odd), centroid,

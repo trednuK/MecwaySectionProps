@@ -5,7 +5,7 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 # section_fem.py
 # Cross-section properties on a tri6 mesh (from section_mesh.py).
-# Runs in the Python that ships with Code-Aster (CPython 3, numpy + scipy);
+# Runs in the Python of section_utils.find_python (CPython 3, numpy + scipy);
 # NOT in IronPython.
 #
 # Formulation: W.D. Pilkey, "Analysis and Design of Elastic Beams:

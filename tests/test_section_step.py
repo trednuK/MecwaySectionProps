@@ -292,6 +292,82 @@ if pc:
 else:
     print("(PipeClip check skipped: SECTION_STEP_PIPECLIP not set)")
 
+# --- assemblies: the position as Mecway 35 shows it ------------------------
+# assembly_rect_hole.step: rect_hole.step placed directly and through a
+# sub-assembly, with a non-identity frame on both sides of each transformation
+# and rep_1 = child in one and parent in the other. The expected values were
+# measured on Mecway's own preview triangles (hidden run, 5 Nov 2026), not
+# derived from the code. In mm.
+ASM = f("assembly_rect_hole.step")
+placed = ss.placements(ASM)
+MEASURED = [
+    ([[0.952381, -0.190476, -0.238095], [0.238095, 0.952381, 0.190476],
+      [0.190476, -0.238095, 0.952381]], [-26.428571, 216.142857, 52.714286]),
+    ([[0.295238, 0.380952, 0.876190], [-0.716190, 0.695238, -0.060952],
+      [-0.632381, -0.609524, 0.478095]], [522.8, -101.16, -30.12])]
+
+
+def same_place(pl, want):
+    rot, tr = want
+    return all(abs(pl["R"][i][j] - rot[i][j]) < 1e-5 for i in range(3)
+               for j in range(3)) and \
+        all(abs(pl["t"][i] * 1e3 - tr[i]) < 1e-5 for i in range(3))
+
+
+check("assembly: two occurrences of the part",
+      len(placed) == 2 and len(ss.load(ASM).unplaced) == 0)
+check("assembly: placements as measured in Mecway (direct, nested)",
+      len(placed) == 2 and same_place(placed[0], MEASURED[0]) and
+      same_place(placed[1], MEASURED[1]))
+one = ss.placements(f("rect_hole.step"))
+check("single part: one identity placement of all faces",
+      len(one) == 1 and one[0]["t"] == [0.0, 0.0, 0.0] and
+      one[0]["R"][0] == [1.0, 0.0, 0.0] and
+      len(one[0]["faces"]) == len(ss.face_ids(f("rect_hole.step"))))
+
+# the face with the hole of the second occurrence, at its global position
+rot = placed[1]["R"]
+tr = placed[1]["t"]
+
+
+def to_global(p):
+    return [rot[i][0] * p[0] + rot[i][1] * p[1] + rot[i][2] * p[2] + tr[i]
+            for i in range(3)]
+
+
+normal = [rot[i][2] for i in range(3)]          # part +Z, the face at z = 20
+offset = sum(a * b for a, b in zip(to_global([0.05, 0.03, 0.02]), normal))
+point = to_global([0.01, 0.01, 0.02])
+u = [rot[i][0] for i in range(3)]
+v = [rot[i][1] for i in range(3)]
+hits = ss.find_placed(ASM, normal, offset, [point], 1e-6)
+check("find_placed: the right occurrence, one face", len(hits) == 1 and
+      hits[0][0] == 1 and len(hits[0][1]) == 1)
+loops = ss.placed_loops_2d(ASM, hits, u, v, chord_rel=1e-6, max_angle_deg=1.0)
+want = PI * 15 ** 2
+check("placed loops: area of the plate with the hole",
+      rel(ss.loops_area(loops) * 1e6, 6000 - want) < 2e-4)
+corner = to_global([0.0, 0.0, 0.02])
+xs = [p[0] for lp in loops for p in lp]
+ys = [p[1] for lp in loops for p in lp]
+cu = sum(a * b for a, b in zip(corner, u))
+cv = sum(a * b for a, b in zip(corner, v))
+check("placed loops: at the global position",
+      abs(min(xs) - cu) < 1e-9 and abs(min(ys) - cv) < 1e-9)
+raises(lambda: ss.find_placed(ASM, normal, offset + 0.5, [point], 1e-6),
+       "no planar STEP face")
+try:
+    ss.find_placed(ASM, normal, offset + 0.5, [point], 1e-6)
+    check("no face at this place: NoFaceError", False)
+except ss.NoFaceError:
+    check("no face at this place: NoFaceError", True)
+listed = ss.planar_faces(ASM)
+check("planar_faces: per occurrence, with the normal at the global position",
+      len(listed) == 2 * sum(1 for x in ss.planar_faces(f("rect_hole.step"))) and
+      any(x["occurrence"] == 1 and abs(x["offset"] - offset) < 1e-9 and
+          sum(a * b for a, b in zip(x["normal"], normal)) > 0.999
+          for x in listed))
+
 if check.failed:
     sys.exit(1)
 print("All tests passed.")

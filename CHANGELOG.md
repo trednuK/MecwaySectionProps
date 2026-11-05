@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- **STEP without a mesh**: Mecway's API cannot read a surface selected in the Geometry
+  view, saved or not. A model without elements now shows the planar faces of the STEP
+  file as temporary tri3 faces (no mesh: 2 s against 37 s and 192 000 elements on a small
+  assembly); click one and Calculate. Everything added is removed afterwards.
+- **STEP assemblies**: faces are found at the position Mecway shows, with placements
+  through `ITEM_DEFINED_TRANSFORMATION`, also nested. Measured on Mecway 35's own preview
+  (inv(A_child) A_parent); on a real 3-part assembly all 83 planar faces coincide.
+- **CAD face without a saved .liml**: the window asks for the STEP file; `<assembly>`
+  in a saved .liml is read. If the STEP has no face at that place under your own mesh,
+  the mesh boundary is used with a note, instead of stopping.
+- **Prerequisite Python 3 with numpy and scipy**, not only Code-Aster's: Code-Aster, then
+  the `PATH` and the default folders; a Python that is too old is skipped (scipy < 1.3
+  stopped with a `return_length` error). When missing, the window gives the pip command
+  and offers to run it. Setting `python` (`aster_python` still works).
 - **Straightening**: faces that are not exactly in one plane (up to 1% of the size)
   are projected onto the best-fitting plane and the deviation is reported, instead of
   stopping (Mecway GUI test: 0.0002 mm).

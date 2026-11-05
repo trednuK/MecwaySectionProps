@@ -12,12 +12,21 @@
 #
 # API:
 #   find_faces(path, normal, offset, points, tol)  -> [face_id, ...]
+#   find_placed(path, normal, offset, points, tol) -> [(placement, [id, ...])]
 #   face_loops_2d(path, face_ids, u, v)            -> [[[x, y], ...], ...]
+#   placed_loops_2d(path, hits, u, v)              -> the same, for find_placed
 #   face_ids(path)                                 -> all face ids in order
+#   placements(path)                               -> parts of an assembly
+#   planar_faces(path)                             -> planar faces, placed
 # All coordinates in metres (the STEP length unit is converted, Mecway places
 # STEP geometry 1:1 in its model in metres, checked with Mecway's PipeClip
 # sample). Face ids are the STEP instance numbers (#id) of ADVANCED_FACE /
 # FACE_SURFACE entities.
+#
+# Assemblies: the geometry of a part is in its own coordinates; find_placed,
+# placed_loops_2d and planar_faces work with the global position, which is
+# what Mecway shows (placements). find_faces and face_loops_2d stay in the
+# coordinates of the file.
 
 import io
 import math
@@ -82,6 +91,11 @@ class Entity(object):
 
 
 class StepError(ValueError):
+    pass
+
+
+class NoFaceError(StepError):
+    """The file is fine, but it has no face at this place."""
     pass
 
 
@@ -432,6 +446,8 @@ class StepModel(object):
         if not self.ents:
             raise StepError("no entities in STEP file {0}".format(path))
         self.scale = self._length_scale()
+        self._placed = None
+        self.unplaced = []
         self._pt = {}
         self._dir = {}
         self._curve = {}
@@ -447,6 +463,180 @@ class StepModel(object):
     def faces(self):
         return [e for k, e in sorted(self.ents.items())
                 if e.has("ADVANCED_FACE") or e.has("FACE_SURFACE")]
+
+    # -- assembly structure ------------------------------------------------
+    def _rep_items(self, rep):
+        """Items of a representation (any subtype), [] when it has none."""
+        for t in rep.order:
+            a = rep.args(t)
+            if len(a) == 3 and isinstance(a[1], (list, tuple)):
+                return a[1]
+        return []
+
+    def _faces_below(self, refs):
+        """Ids of the faces reachable from the given entities."""
+        found = []
+        seen = set()
+        stack = list(refs)
+        while stack:
+            r = stack.pop()
+            if isinstance(r, (list, tuple)):
+                stack.extend(r)
+                continue
+            if not isinstance(r, Ref) or int(r) in seen:
+                continue
+            seen.add(int(r))
+            e = self.ents.get(int(r))
+            if e is None:
+                continue
+            if e.has("ADVANCED_FACE") or e.has("FACE_SURFACE"):
+                found.append(e.id)
+                continue
+            for t in e.order:
+                stack.extend(e.args(t))
+        return found
+
+    def _rep_links(self):
+        """{rep: set of reps} of the plain SHAPE_REPRESENTATION_RELATIONSHIPs
+        (without transformation), both ways: the order varies per exporter."""
+        links = {}
+        for e in self.ents.values():
+            if e.has("REPRESENTATION_RELATIONSHIP_WITH_TRANSFORMATION"):
+                continue
+            k = [t for t in ("SHAPE_REPRESENTATION_RELATIONSHIP",
+                             "REPRESENTATION_RELATIONSHIP") if e.has(t)]
+            if not k or len(e.args(k[0])) < 4:
+                continue
+            a, b = int(e.args(k[0])[2]), int(e.args(k[0])[3])
+            links.setdefault(a, set()).add(b)
+            links.setdefault(b, set()).add(a)
+        return links
+
+    def _rep_group(self, reps, links):
+        """The reps and all reps linked to them."""
+        group = set()
+        stack = list(reps)
+        while stack:
+            r = stack.pop()
+            if r not in group:
+                group.add(r)
+                stack.extend(links.get(r, ()))
+        return group
+
+    def _transformation(self, rep_rel, child_group):
+        """(R, t) of a part in its parent, as Mecway 35 places it (measured
+        on tests/data/section_step/assembly_rect_hole.step: exact):
+        x_parent = inv(A_child) A_parent x_child, the frames as matrices from
+        their own axes to the representation's. That is the order of Open
+        CASCADE, so not the A_parent inv(A_child) one might expect; the two
+        are the same when a frame is the identity, as in most exports.
+        Which frame is the child's: the one listed in the items of that
+        representation, else item_1 belongs to rep_1. Exporters write the
+        representations in either order."""
+        rr = self.ent(rep_rel)
+        rep_1, rep_2 = [int(r) for r in
+                        rr.args("REPRESENTATION_RELATIONSHIP")[2:4]]
+        tr = self.ent(rr.args(
+            "REPRESENTATION_RELATIONSHIP_WITH_TRANSFORMATION")[0])
+        if not tr.has("ITEM_DEFINED_TRANSFORMATION"):
+            raise StepError("STEP: unsupported assembly transformation {0} "
+                            "(#{1})".format(tr.name(), tr.id))
+        item_1, item_2 = tr.args("ITEM_DEFINED_TRANSFORMATION")[2:4]
+        first_is_child = rep_1 in child_group or rep_2 not in child_group
+        child_rep, parent_rep = (rep_1, rep_2) if first_is_child             else (rep_2, rep_1)
+        child_items = set(int(i) for i in self._rep_items(self.ent(child_rep)))
+        parent_items = set(int(i) for i in
+                           self._rep_items(self.ent(parent_rep)))
+        if int(item_1) in child_items or int(item_2) in parent_items:
+            child, parent = item_1, item_2
+        elif int(item_2) in child_items or int(item_1) in parent_items:
+            child, parent = item_2, item_1
+        elif first_is_child:
+            child, parent = item_1, item_2
+        else:
+            child, parent = item_2, item_1
+        oc, xc, yc, zc = self.placement(child)
+        op, xp, yp, zp = self.placement(parent)
+        # rows of inv(A_child) are x, y, z of the child's frame
+        frame = (xc, yc, zc)
+        axes = (xp, yp, zp)
+        rot = [[_dot(frame[i], axes[j]) for j in range(3)] for i in range(3)]
+        return rot, [_dot(frame[i], _sub(op, oc)) for i in range(3)]
+
+    def placements(self):
+        """[{"R": rows, "t": [x, y, z], "faces": [face id, ...]}], one per
+        occurrence of a part, with x_global = R x_file + t (metres). A file
+        without assembly structure is one placement of all faces. Faces an
+        assembly does not reach are left out and listed in self.unplaced,
+        not placed at the origin: they would be in the wrong place."""
+        if self._placed is not None:
+            return self._placed
+        unit = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
+        every = [f.id for f in self.faces()]
+        nauos = [e for e in self.ents.values()
+                 if e.has("NEXT_ASSEMBLY_USAGE_OCCURRENCE")]
+        self.unplaced = []
+        if not nauos:
+            self._placed = [{"R": unit, "t": [0.0, 0.0, 0.0], "faces": every}]
+            return self._placed
+        reps = {}
+        for e in self.ents.values():
+            if e.has("SHAPE_DEFINITION_REPRESENTATION"):
+                a = e.args("SHAPE_DEFINITION_REPRESENTATION")
+                shape = self.ent(a[0])
+                if shape.has("PRODUCT_DEFINITION_SHAPE"):
+                    pd = int(shape.args("PRODUCT_DEFINITION_SHAPE")[2])
+                    reps.setdefault(pd, []).append(int(a[1]))
+        moved = {}
+        for e in self.ents.values():
+            if e.has("CONTEXT_DEPENDENT_SHAPE_REPRESENTATION"):
+                a = e.args("CONTEXT_DEPENDENT_SHAPE_REPRESENTATION")
+                shape = self.ent(a[1])
+                moved[int(shape.args("PRODUCT_DEFINITION_SHAPE")[2])] = \
+                    int(a[0])
+        links = self._rep_links()
+        children = {}
+        related = set()
+        for e in nauos:
+            a = e.args("NEXT_ASSEMBLY_USAGE_OCCURRENCE")
+            children.setdefault(int(a[3]), []).append((e.id, int(a[4])))
+            related.add(int(a[4]))
+        out = []
+
+        def walk(pd, rot, tr, depth):
+            if depth > 32:
+                raise StepError("STEP: assembly deeper than 32 levels "
+                                "(a cycle?)")
+            group = self._rep_group(reps.get(pd, []), links)
+            items = []
+            for r in sorted(group):
+                items.extend(self._rep_items(self.ent(r)))
+            faces = self._faces_below(items)
+            if faces:
+                out.append({"R": rot, "t": tr, "faces": sorted(faces)})
+            for nauo, child in children.get(pd, []):
+                cr, ct = unit, [0.0, 0.0, 0.0]
+                if nauo in moved:
+                    cr, ct = self._transformation(
+                        moved[nauo],
+                        self._rep_group(reps.get(child, []), links))
+                walk(child, _matmul(rot, cr),
+                     _add(_rotate(rot, ct), tr), depth + 1)
+
+        for pd in sorted(children):
+            if pd not in related:
+                walk(pd, unit, [0.0, 0.0, 0.0], 0)
+        reached = set()
+        for pl in out:
+            reached.update(pl["faces"])
+        self.unplaced = [i for i in every if i not in reached]
+        if self.unplaced and any(e.has("MAPPED_ITEM")
+                                 for e in self.ents.values()):
+            raise StepError("STEP: assembly with MAPPED_ITEM placements is "
+                            "not supported ({0} faces not placed)".format(
+                                len(self.unplaced)))
+        self._placed = out
+        return out
 
     # -- units -------------------------------------------------------------
     def _unit_scale(self, ref, depth=0):
@@ -708,6 +898,22 @@ class StepModel(object):
             pts[0], pts[-1] = p1, p2
         self._edge[key] = pts
         return pts
+
+
+def _rotate(rows, p):
+    return [rows[i][0] * p[0] + rows[i][1] * p[1] + rows[i][2] * p[2]
+            for i in range(3)]
+
+
+def _rotate_back(rows, p):
+    """The inverse of _rotate (rows are orthonormal)."""
+    return [rows[0][i] * p[0] + rows[1][i] * p[1] + rows[2][i] * p[2]
+            for i in range(3)]
+
+
+def _matmul(a, b):
+    return [[a[i][0] * b[0][j] + a[i][1] * b[1][j] + a[i][2] * b[2][j]
+             for j in range(3)] for i in range(3)]
 
 
 def _sample(c, pa, pb, closed, tol, max_angle):
@@ -1058,19 +1264,19 @@ def face_ids(path):
     return [f.id for f in load(path).faces()]
 
 
-def find_faces(path, normal, offset, points, tol):
-    """STEP ids of the planar faces whose PLANE is parallel to normal (either
-    sign) at offset = P.normal (within tol, metres) and that contain at least
-    one of points (3D, metres; exact boundary including holes)."""
-    model = load(path)
-    n = _unit([float(x) for x in normal])
+def _faces_on_plane(model, n, offset, tol, only=None):
+    """(faces, planes, errors) for the planar faces parallel to n at
+    offset: faces = [(id, 2D loops, u, v)], planes = [(id, offset)] of all
+    parallel faces, errors = texts of faces that could not be followed.
+    only: limit to these face ids."""
     u, v = _basis(n)
-    tol = float(tol)
     angle_tol = 1e-6
-    found = []
+    faces = []
     planes = []
     errors = []
     for f in model.faces():
+        if only is not None and f.id not in only:
+            continue
         try:
             o, z = model.plane(f)
         except StepError:
@@ -1087,29 +1293,149 @@ def find_faces(path, normal, offset, points, tol):
             # e.g. a gap beyond the tolerance: skip, report if nothing found
             errors.append(str(e))
             continue
-        for p in points:
-            if abs(_dot(p, n) - offset) > tol:
-                continue
-            q = [_dot(p, u), _dot(p, v)]
-            c = 0
-            for lp in loops:
-                if _inside2d(q, lp):
-                    c += 1
-            if c % 2 == 1:
-                found.append(f.id)
-                break
-    if not found:
-        near = ", ".join("#{0} at {1} m".format(i, _g(d, 6))
-                         for i, d in planes[:12])
-        raise StepError(
-            "no planar STEP face in {0} on the plane n=({1}, {2}, "
+        faces.append((f.id, loops, u, v))
+    return faces, planes, errors
+
+
+def _contains(loops, q):
+    c = 0
+    for lp in loops:
+        if _inside2d(q, lp):
+            c += 1
+    return c % 2 == 1
+
+
+def _no_face_text(path, n, offset, planes, errors):
+    near = ", ".join("#{0} at {1} m".format(i, _g(d, 6))
+                     for i, d in planes[:12])
+    return ("no planar STEP face in {0} on the plane n=({1}, {2}, "
             "{3}), offset {4} m contains the selected points "
             "(parallel planar faces: {5})".format(
                 os.path.basename(path), _g(n[0], 4), _g(n[1], 4),
                 _g(n[2], 4), _g(offset, 6),
                 near if near else "none") +
             ("; skipped: " + "; ".join(errors[:3]) if errors else ""))
+
+
+def _hits(model, n, offset, points, tol, only=None):
+    """(ids of the faces that contain a point, points contained, planes,
+    errors)."""
+    faces, planes, errors = _faces_on_plane(model, n, offset, tol, only)
+    found = []
+    inside = 0
+    for fid, loops, u, v in faces:
+        count = 0
+        for p in points:
+            if abs(_dot(p, n) - offset) > tol:
+                continue
+            if _contains(loops, [_dot(p, u), _dot(p, v)]):
+                count += 1
+        if count:
+            found.append(fid)
+            inside += count
+    return found, inside, planes, errors
+
+
+def find_faces(path, normal, offset, points, tol):
+    """STEP ids of the planar faces whose PLANE is parallel to normal (either
+    sign) at offset = P.normal (within tol, metres) and that contain at least
+    one of points (3D, metres; exact boundary including holes), in the
+    coordinates of the file."""
+    model = load(path)
+    n = _unit([float(x) for x in normal])
+    found, _, planes, errors = _hits(model, n, offset, points, float(tol))
+    if not found:
+        raise NoFaceError(_no_face_text(path, n, offset, planes, errors))
     return found
+
+
+def placements(path):
+    """The parts of the file: see StepModel.placements."""
+    return load(path).placements()
+
+
+def find_placed(path, normal, offset, points, tol, hint=None):
+    """
+    As find_faces, for coordinates as Mecway shows them (the global position
+    in an assembly): [(placement, [face id, ...])] with placement an index in
+    placements(path). The occurrence with the most selected points wins: the
+    faces of two touching parts can lie in one plane on top of each other, and
+    both counted would cancel. hint = {"hits": [[placement, [ids]], ...]}: the
+    faces are known, nothing is searched (a pick on planar_faces).
+    """
+    model = load(path)
+    placed = model.placements()
+    if hint:
+        return [(int(k), [int(i) for i in ids]) for k, ids in hint["hits"]]
+    n = _unit([float(x) for x in normal])
+    tol = float(tol)
+    best = None
+    planes = []
+    errors = []
+    for k, pl in enumerate(placed):
+        local_n = _rotate_back(pl["R"], n)
+        local_offset = offset - _dot(pl["t"], n)
+        local = [_rotate_back(pl["R"], _sub(p, pl["t"])) for p in points]
+        found, inside, near, skipped = _hits(
+            model, local_n, local_offset, local, tol, set(pl["faces"]))
+        planes.extend(near)
+        errors.extend(skipped)
+        if found and (best is None or inside > best[0]):
+            best = (inside, k, found)
+    if best is None:
+        raise NoFaceError(_no_face_text(path, n, offset, planes, errors))
+    return [(best[1], best[2])]
+
+
+def placed_loops_2d(path, hits, u, v, chord_rel=None, max_angle_deg=None,
+                    info=None):
+    """The loops of find_placed in x = P.u, y = P.v with P the global
+    position: face_loops_2d in the coordinates of the part, shifted."""
+    placed = load(path).placements()
+    out = []
+    gaps = []
+    for k, ids in hits:
+        pl = placed[k]
+        part = {}
+        loops = face_loops_2d(path, ids, _rotate_back(pl["R"], u),
+                              _rotate_back(pl["R"], v), chord_rel,
+                              max_angle_deg, info=part)
+        dx, dy = _dot(pl["t"], u), _dot(pl["t"], v)
+        out.extend([[[p[0] + dx, p[1] + dy] for p in lp] for lp in loops])
+        gaps.extend([[g, [c[0] + dx, c[1] + dy]]
+                     for g, c in part.get("gaps_closed", [])])
+    if info is not None:
+        info["gaps_closed"] = gaps
+    return out
+
+
+def planar_faces(path, chord_rel=1e-3, max_angle_deg=12.0):
+    """
+    The planar faces of all placed parts, coarsely sampled:
+    ({"occurrence", "face", "normal", "offset", "loops": 3D global loops},
+    per face) as a list. normal points out of the solid (ISO 10303-42: the
+    surface normal, reversed when same_sense is false; arbitrary for sheet
+    bodies). A face that cannot be followed is left out.
+    """
+    model = load(path)
+    out = []
+    for k, pl in enumerate(model.placements()):
+        for fid in pl["faces"]:
+            f = model.ent(fid)
+            try:
+                o, z = model.plane(f)
+                l3 = _loops_3d(model, [f], chord_rel, max_angle_deg)[0]
+            except StepError:
+                continue
+            t = "ADVANCED_FACE" if f.has("ADVANCED_FACE") else "FACE_SURFACE"
+            sense = 1.0 if str(f.args(t)[3]) != "F" else -1.0
+            n = _rotate(pl["R"], _mul(z, sense))
+            p0 = _add(_rotate(pl["R"], o), pl["t"])
+            out.append({"occurrence": k, "face": fid, "normal": n,
+                        "offset": _dot(p0, n),
+                        "loops": [[_add(_rotate(pl["R"], p), pl["t"])
+                                   for p in lp] for lp in l3]})
+    return out
 
 
 def face_loops_2d(path, face_ids, u, v, chord_rel=None, max_angle_deg=None,

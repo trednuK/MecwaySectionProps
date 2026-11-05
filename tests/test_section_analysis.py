@@ -4,8 +4,7 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 # Test of Scripts/section_mesh.py, section_fem.py and section_analysis.py
-# (cross-section properties). Run with the Python that ships with Code-Aster
-# (numpy + scipy):
+# (cross-section properties). Run with a Python with numpy and scipy:
 #
 #   python tests/test_section_analysis.py
 #
@@ -30,11 +29,12 @@ try:
     import scipy  # noqa: F401
 except ImportError:
     # Plain CPython without numpy/scipy (e.g. the other tests' Python): run
-    # again with Code-Aster's Python (section_utils.aster_python), as
-    # MecwaySectionProps does; skip when that is not installed either.
+    # again with the Python MecwaySectionProps finds
+    # (section_utils.find_python); skip when there is none.
     import subprocess
     import section_utils
-    found = section_utils.aster_python()
+    section_utils.save_setting = lambda key, value: None  # test: no write
+    found = section_utils.find_python()["path"]
     pythons = [found] if found else []
     if pythons and not os.environ.get("SECTION_TEST_RELAUNCHED"):
         print("numpy/scipy missing here: running with " + pythons[0])
@@ -42,8 +42,8 @@ except ImportError:
         env = dict(os.environ, SECTION_TEST_RELAUNCHED="1")
         sys.exit(subprocess.call([pythons[0], os.path.abspath(__file__)],
                                  env=env))
-    print("SKIP: test_section_analysis needs numpy and scipy (the Python of "
-          "the Code-Aster installation, see section_utils.aster_python).")
+    print("SKIP: test_section_analysis needs numpy and scipy "
+          "(see section_utils.find_python).")
     sys.exit(0)
 import numpy as np  # noqa: E402
 import section_analysis as sa  # noqa: E402
@@ -324,6 +324,33 @@ t1 = time.time()
 r = sa.run_analysis({"loops": SHAPES["ibeam_fillet"]})
 dt = time.time() - t1
 check("speed: I with fillets in < 3 s ({0:.2f} s)".format(dt), dt < 3.0)
+# --- display triangles of planar STEP faces ---------------------------------
+import section_step as ss  # noqa: E402
+STEP_DATA = os.path.join(_HERE, "data", "section_step")
+for name in ("rect_hole.step", "l_two_faces.step", "tube.step"):
+    path = os.path.join(STEP_DATA, name)
+    listing = sa.list_faces(path)
+    worst = 0.0
+    outward = True
+    for f in listing["faces"]:
+        pts = np.array(f["points"])
+        tri = np.array(f["triangles"])
+        n = np.array(f["normal"])
+        e1 = pts[tri[:, 1]] - pts[tri[:, 0]]
+        e2 = pts[tri[:, 2]] - pts[tri[:, 0]]
+        cross = np.cross(e1, e2)
+        outward = outward and bool(np.all(cross.dot(n) > 0.0))
+        shown = 0.5 * float(np.sum(cross.dot(n)))
+        u = np.cross(n, [1.0, 0.0, 0.0] if abs(n[0]) < 0.9 else [0.0, 1.0, 0.0])
+        u /= np.linalg.norm(u)
+        v = np.cross(n, u)
+        exact = ss.loops_area(ss.face_loops_2d(path, [f["face"]], u.tolist(),
+                                               v.tolist()))
+        worst = max(worst, abs(shown / exact - 1.0))
+    check("display triangles {0}: area within 5%, node order outward "
+          "(worst {1:.3f})".format(name, worst),
+          listing["faces"] and worst < 0.05 and outward, worst)
+
 print("total {0:.1f} s".format(time.time() - t0))
 
 sys.exit(1 if check.failed else 0)

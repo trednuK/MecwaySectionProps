@@ -5,7 +5,7 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 # section_mesh.py
 # 2D triangle mesher for a beam cross-section given as closed loops.
-# Runs in the Python that ships with Code-Aster (CPython 3, numpy + scipy);
+# Runs in the Python of section_utils.find_python (CPython 3, numpy + scipy);
 # NOT in IronPython. Standard library + numpy + scipy only.
 #
 # Domain: even-odd rule over all loops (outer boundaries, holes, islands in

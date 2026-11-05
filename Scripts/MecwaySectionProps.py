@@ -14,13 +14,13 @@
 # that calls mw).
 #
 # Modules:
-#   section_utils     : settings, language, log, work folder, Code-Aster's
-#                       Python
+#   section_utils     : settings, language, log, work folder, the Python
+#                       with numpy and scipy
 #   section_gui       : the non-modal window (table, plot, buttons)
 #   section_mecway    : selection -> plane and boundary, CAD (STEP) request,
 #                       Mecway material, #ASTER-SECTIE line in the .liml
-#   section_analysis  : the analysis itself (Python 3 of the Code-Aster
-#                       installation, numpy/scipy; started as a process):
+#   section_analysis  : the analysis itself (Python 3 with numpy/scipy,
+#                       a prerequisite; started as a process):
 #                       section_mesh (triangle mesh), section_fem
 #                       (properties), section_step (exact STEP boundary)
 # MecwayAsterBridge (github.com/trednuK/MecwayAsterBridge) reads the
@@ -42,9 +42,12 @@ except NameError:
 
 from section_utils import log, tr
 import section_gui
+import section_mecway
 
 
 def main():
+    # like mw, Vector exists only in this script's namespace
+    section_mecway.Vector = Vector
     token = section_gui.claim_instance()
     if token is None:
         # Second start while the window is open: bring it to the front.

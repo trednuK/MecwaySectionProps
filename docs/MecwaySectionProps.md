@@ -12,8 +12,7 @@ het in het model, zodat [MecwayAsterBridge](https://github.com/trednuK/MecwayAst
 zonder schatting achteraf.
 
 Het is de Mecway-versie van AreaPropsForAlibre (hetzelfde venster en dezelfde grootheden),
-maar zonder extra Python-pakketten: de berekening draait in de Python die met Code-Aster
-wordt meegeleverd (numpy en scipy).
+en de berekening draait in Python met numpy en scipy.
 
 | Wat | Waar |
 |---|---|
@@ -25,10 +24,19 @@ wordt meegeleverd (numpy en scipy).
 
 ## 1. Installeren
 
-1. Nodig: **Mecway 34** en **Code-Aster** (de Windows-versie, bijv. 17.4 in
-   `%LOCALAPPDATA%\code_aster`). MecwaySectionProps rekent met de Python die met
-   Code-Aster wordt meegeleverd (numpy en scipy) en zoekt die zelf (de nieuwste versie);
-   andere installaties zijn niet nodig. Om de extra Code-Aster-eigenschappen (§5) te
+1. Nodig: **Mecway 34 of 35** en **Python 3 met numpy en scipy** (scipy 1.3 of nieuwer).
+   Dit is een voorwaarde: Python wordt niet meegeleverd. Staat Code-Aster op de pc, dan
+   is er niets te installeren, want de Python daarvan wordt gebruikt. Anders zoekt
+   MecwaySectionProps op de `PATH` en in de standaardmappen. Is numpy of scipy er niet,
+   dan meldt het venster dat bij *Berekenen*, met de opdracht om ze te installeren en
+   de keuze om dat meteen in een apart venster te doen:
+
+   ```bash
+   python -m pip install numpy scipy
+   ```
+
+   Is er helemaal geen Python, installeer die dan eerst van
+   [python.org](https://www.python.org). Om de extra Code-Aster-eigenschappen (§5) te
    gebruiken: [MecwayAsterBridge](https://github.com/trednuK/MecwayAsterBridge).
 2. Download deze repository (op GitHub *Code* > *Download ZIP*, uitpakken) of clone hem,
    bijv. naar `Documents\GitHub\MecwaySectionProps`.
@@ -43,13 +51,15 @@ Instellingen (niet nodig in het normale geval) staan in `Scripts\section_setting
 | `language` | `nl` of `en` (de knoppen NL/EN in het venster) | de taal van Windows |
 | `accuracy` | `coarse`, `normal`, `fine` of `very_fine` (de keuze *Nauwkeurigheid*) | `normal` |
 | `work_dir` | werkmap voor invoer, resultaat en log | `WorkDir` naast `Scripts` |
-| `aster_python` | pad naar een `python.exe` met numpy en scipy | gevonden in de Code-Aster-installatie |
+| `python` | pad naar een `python.exe` met numpy en scipy (ook de oude naam `aster_python` werkt) | gezocht: Code-Aster, `PATH`, standaardmappen |
+| `python_found` | de Python die het zoeken vond (schrijft het programma zelf) | - |
 
 ## 2. Gebruik
 
 1. Selecteer in Mecway, in de **vlakselectie** (*Select faces*), de vlakken van de
    doorsnede: bijvoorbeeld de eindvlakken van een geëxtrudeerd profiel of het
    snijvlak van een volume. Alle vlakken moeten in één plat vlak liggen.
+   Heeft het model nog geen mesh, zie dan §2.1.
 2. Start *Tools* > `MecwaySectionProps`. Het venster blijft open naast Mecway: je kunt
    een andere selectie maken en opnieuw op **Berekenen** klikken. Een tweede start van
    het script haalt het open venster naar voren.
@@ -65,8 +75,11 @@ Instellingen (niet nodig in het normale geval) staan in `Scripts\section_setting
      rekent met de **exacte** rand (lijnen, cirkels, ellipsen, B-splines), los van de
      meshfijnheid. Selecteer één of meer mesh-vlakken op het CAD-vlak; het hele CAD-vlak
      telt mee. Meerdere aangrenzende CAD-vlakken in hetzelfde vlak worden samengevoegd.
-     Het model moet opgeslagen zijn (de koppeling component → STEP-bestand staat in de
-     `.liml`).
+     Het STEP-bestand komt uit de opgeslagen `.liml`. Is het model niet opgeslagen, dan
+     vraagt het venster welk bestand het is en onthoudt dat zolang het open is. Bij
+     *Annuleren*, of als er op die plek geen STEP-vlak is, wordt de rand van de mesh
+     gebruikt en staat dat bij de resultaten. Ook assemblies werken: het vlak wordt
+     gezocht op de plaats die Mecway toont.
 4. Kies eventueel de **Nauwkeurigheid** (de fijnheid van het mesh waarmee de doorsnede
    wordt doorgerekend): *Grof* (±1000 kwadratische driehoeken), *Normaal* (±3000,
    standaard), *Fijn* (±10000) of *Zeer fijn* (±30000); in dunne wanden ook meer
@@ -97,6 +110,27 @@ toch kan; elke reparatie staat als opmerking onder de tabel:
 - Een opening wordt alleen gesloten tot 2 % van de afmeting van de doorsnede; is hij
   groter, dan stopt de berekening met de plaats van de opening. Een echte sleuf (met
   eigen randen) is geen losse rand en blijft dus open.
+
+### 2.1 STEP zonder mesh
+
+Mecway geeft een surface die je in de *Geometry*-weergave selecteert niet door aan
+scripts, ook niet als het model is opgeslagen; de API kent alleen mesh-vlakken. Er wordt
+geen mesh gemaakt: dat duurt te lang en is niet nodig. Het gaat zo:
+
+1. Klik op **Berekenen** in een model zonder elementen. Het script leest de STEP en zet
+   alle vlakke vlakken, op hun plaats in de assembly, als tijdelijke vlakjes in de
+   component `SectionProps_tijdelijk` (enkele seconden). Is het model niet opgeslagen,
+   dan vraagt het venster eerst om het STEP-bestand.
+2. Toon het model in Mecway, kies *Select faces* (toets `f`) en klik op het vlak van de
+   doorsnede. Selecteren in de elementselectie kan ook.
+3. Klik weer op **Berekenen**. De rand komt exact uit de STEP; op de vlakjes wordt
+   niets gerekend.
+
+Na de berekening verwijdert het script alles wat het heeft toegevoegd; dat gebeurt ook
+als je het venster eerder sluit. Mislukt de berekening, dan blijven de vlakjes staan,
+zodat je een ander vlak kunt kiezen. Blijft de component toch achter (Mecway gestopt),
+dan ruimt de volgende start van het venster hem op; sla het model niet op terwijl de
+vlakjes er staan. Een model met een eigen mesh wordt nooit aangeraakt.
 
 ## 3. Wat het venster toont
 
@@ -226,10 +260,15 @@ de Mecway-elementen; een grof Mecway-mesh beïnvloedt dus alleen de vorm van geb
   (een grove boog van 45° per element mist 0,2 % van de oppervlakte). Gebruik voor
   gebogen randen liever *CAD-vlak* of een fijner mesh.
 - *CAD-vlak*: alleen vlakke STEP-vlakken met lijnen, cirkels, ellipsen, polylijnen en
-  (rationele) B-splines; geen plaatsingen van assemblies (één STEP-geometrie per
-  component, zoals Mecway hem inleest).
+  (rationele) B-splines. Assemblies: plaatsingen via `ITEM_DEFINED_TRANSFORMATION`, ook
+  genest, nagemeten aan Mecway 35; `MAPPED_ITEM` wordt niet ondersteund.
 - Losse delen: geen J, Iw, dwarskrachtcentrum of afschuiving, en geen *General section*.
-- Het venster werkt alleen in Mecway met Windows Forms en een Code-Aster-installatie.
+- Het venster werkt alleen in Mecway met Windows Forms en met Python 3 met numpy en scipy.
+- Een surface die in de *Geometry*-weergave is geselecteerd is niet leesbaar (§2.1).
+- Mecway 34 en 35 zijn beide getest, ook met een STEP-assembly (de vlakken komen uit het
+  STEP-bestand zelf, dus Mecway hoeft de assembly niet te kunnen inlezen). De gratis
+  versie van Mecway weigert scripts bij meer dan 1000 knopen; de tijdelijke vlakjes van
+  een groter model zijn dan niet automatisch te verwijderen.
 
 ## 8. Bronnen
 

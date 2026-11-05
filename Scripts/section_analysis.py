@@ -5,7 +5,7 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 # section_analysis.py
 # Cross-section properties of a beam section (mesher + FEM), run with the
-# Python that ships with Code-Aster (CPython 3, numpy + scipy); NOT in
+# Python found by section_utils.find_python (CPython 3, numpy + scipy); NOT in
 # IronPython.
 #
 #   python section_analysis.py <in.json> <out.json>
@@ -13,8 +13,9 @@
 # Input (all lengths in metres):
 #   {"loops": [[[x, y], ...], ...],   closed loops (last point not repeated),
 #                                     even-odd domain
-#    "step": {"file", "normal", "offset", "u", "v", "points", "tol"},
-#                                     alternative to "loops" (section_step)
+#    "step": {"file", "normal", "offset", "u", "v", "points", "tol",
+#             "hint"},                alternative to "loops" (section_step)
+#    "fallback_loops": [...],         used when the STEP face is not found
 #    "mesh_size": null,               maximum element area in m^2 (null = auto)
 #    "n_target": 3000,                about this many tri6 elements (auto size)
 #    "n_across": 3.0,                 element rows across a thin wall
@@ -23,6 +24,10 @@
 # were meshed) and an "aster" block for AFFE_CARA_ELEM POUTRE
 # SECTION='GENERALE'. out.json is always written ("success" false + "error" +
 # "traceback" on failure).
+#
+# Other job: {"list_faces": STEP path} gives {"faces": [...], "unplaced": n}:
+# the planar faces at their global position with triangles to show them in
+# Mecway (see list_faces).
 
 import json
 import math
@@ -44,18 +49,79 @@ import section_mesh  # noqa: E402
 def _loops_from_step(step):
     import section_step   # written separately; imported only when needed
     path = step["file"]
-    face_ids = section_step.find_faces(path, step.get("normal"), step.get("offset"),
-                                       step.get("points"), step.get("tol"))
+    hits = section_step.find_placed(path, step.get("normal"), step.get("offset"),
+                                    step.get("points"), step.get("tol"),
+                                    step.get("hint"))
     # 1 degree per chord: ~5e-5 relative area error on circles (3 deg: ~5e-4)
     info = {}
+    loops = section_step.placed_loops_2d(path, hits, step.get("u"), step.get("v"),
+                                         chord_rel=1e-6, max_angle_deg=1.0, info=info)
+    return loops, [i for _, ids in hits for i in ids], info.get("gaps_closed", [])
+
+
+def display_triangles(face, spacing_parts=10.0):
+    """(points 3D, triangles) to show a planar face in Mecway and pick it:
+    Delaunay triangles of the boundary points (long edges subdivided) with the
+    centroid inside. Only for the eye and the mouse: nothing is computed on
+    them, so a triangle missing in a narrow slit does not matter. The node
+    order is counter-clockwise about the outward normal."""
+    from scipy.spatial import Delaunay
     try:
-        loops = section_step.face_loops_2d(path, face_ids, step.get("u"), step.get("v"),
-                                           chord_rel=1e-6, max_angle_deg=1.0, info=info)
-    except TypeError:
-        # older section_step without the info argument
-        loops = section_step.face_loops_2d(path, face_ids, step.get("u"), step.get("v"),
-                                           chord_rel=1e-6, max_angle_deg=1.0)
-    return loops, list(face_ids), info.get("gaps_closed", [])
+        from scipy.spatial import QhullError        # scipy 1.8 and newer
+    except ImportError:
+        from scipy.spatial.qhull import QhullError
+    n = np.asarray(face["normal"], dtype=float)
+    u = np.cross(n, [1.0, 0.0, 0.0] if abs(n[0]) < 0.9 else [0.0, 1.0, 0.0])
+    u /= np.linalg.norm(u)
+    v = np.cross(n, u)
+    loops = [np.asarray(lp, dtype=float)[:, :] for lp in face["loops"]]
+    flat = [np.stack([lp.dot(u), lp.dot(v)], axis=1) for lp in loops]
+    every = np.vstack(flat)
+    size = float(np.hypot(*(every.max(axis=0) - every.min(axis=0))))
+    step = size / spacing_parts
+    pts = []
+    pa, pb = [], []
+    for lp in flat:
+        nxt = np.roll(lp, -1, axis=0)
+        pa.append(lp)
+        pb.append(nxt)
+        for a, b in zip(lp, nxt):
+            m = max(1, int(math.ceil(float(np.hypot(*(b - a))) / step)))
+            pts.extend(a + (b - a) * (k / float(m)) for k in range(m))
+    pts = np.unique(np.round(np.array(pts) / (1e-9 * size)), axis=0) * (1e-9 * size)
+    try:
+        simp = Delaunay(pts, qhull_options="QJ Qbb Qc").simplices
+        cen = pts[simp].mean(axis=1)
+        simp = simp[section_mesh.points_inside(cen, np.vstack(pa), np.vstack(pb))]
+    except (QhullError, ValueError):
+        # degenerate input: a fan over the first loop
+        pts = flat[0]
+        simp = np.array([[0, k, k + 1] for k in range(1, len(pts) - 1)])
+    if len(simp):
+        X = pts[simp]
+        cross = ((X[:, 1, 0] - X[:, 0, 0]) * (X[:, 2, 1] - X[:, 0, 1]) -
+                 (X[:, 1, 1] - X[:, 0, 1]) * (X[:, 2, 0] - X[:, 0, 0]))
+        simp = simp[cross != 0.0]
+        cross = cross[cross != 0.0]
+        simp[cross < 0] = simp[cross < 0][:, [0, 2, 1]]
+    p3 = (pts[:, 0:1] * u[None, :] + pts[:, 1:2] * v[None, :] +
+          float(face["offset"]) * n[None, :])
+    return p3, simp
+
+
+def list_faces(path):
+    """The job {"list_faces": path}: the planar faces of a STEP file at their
+    global position, each with "points" and "triangles" for Mecway."""
+    import section_step
+    out = []
+    for face in section_step.planar_faces(path):
+        pts, tris = display_triangles(face)
+        if len(tris):
+            out.append({"file": path, "occurrence": face["occurrence"],
+                        "face": face["face"], "normal": face["normal"],
+                        "offset": face["offset"], "points": pts.tolist(),
+                        "triangles": tris.tolist()})
+    return {"faces": out, "unplaced": len(section_step.load(path).unplaced)}
 
 
 def aster_block(res, nodes, elements):
@@ -122,9 +188,18 @@ def run_analysis(data):
         if "heal" in data:
             res["heal"] = data["heal"]      # passed through unchanged
     elif data.get("step"):
-        loops, face_ids, gaps = _loops_from_step(data["step"])
-        res["face_ids"] = face_ids
-        res["gaps_closed"] = gaps
+        import section_step
+        try:
+            loops, face_ids, gaps = _loops_from_step(data["step"])
+            res["face_ids"] = face_ids
+            res["gaps_closed"] = gaps
+        except section_step.NoFaceError as exc:
+            if not data.get("fallback_loops"):
+                raise
+            # no STEP face under the user's own mesh: the mesh boundary is
+            # still right, and the window says that it was used
+            loops = data["fallback_loops"]
+            res["cad_fallback"] = str(exc)
     else:
         raise ValueError("input needs 'loops' or 'step'")
     nu = float(data.get("nu") or 0.0)
@@ -198,7 +273,8 @@ def main(argv=None):
     try:
         with open(in_path, "r") as f:
             data = json.load(f)
-        results = run_analysis(data)
+        results = list_faces(data["list_faces"]) if data.get("list_faces") \
+            else run_analysis(data)
         results["success"] = True
     except Exception as exc:
         results = {"success": False, "error": str(exc),

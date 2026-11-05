@@ -11,9 +11,8 @@ eccentricity of the shear centre, warping, ...) in the model, so that
 [MecwayAsterBridge](https://github.com/trednuK/MecwayAsterBridge) uses
 them in Code-Aster without estimating them afterwards.
 
-It is the Mecway version of AreaPropsForAlibre (the same window and quantities), but
-without extra Python packages: the analysis runs in the Python that comes with Code-Aster
-(numpy and scipy).
+It is the Mecway version of AreaPropsForAlibre (the same window and quantities); the
+analysis runs in Python with numpy and scipy.
 
 | What | Where |
 |---|---|
@@ -25,10 +24,19 @@ without extra Python packages: the analysis runs in the Python that comes with C
 
 ## 1. Installation
 
-1. Needed: **Mecway 34** and **Code-Aster** (the Windows build, e.g. 17.4 in
-   `%LOCALAPPDATA%\code_aster`). MecwaySectionProps computes with the Python that comes
-   with Code-Aster (numpy and scipy) and finds it itself (the newest version); nothing
-   else needs to be installed. To use the extra Code-Aster properties (§5):
+1. Needed: **Mecway 34 or 35** and **Python 3 with numpy and scipy** (scipy 1.3 or
+   newer). This is a prerequisite: Python is not included. With Code-Aster on the PC
+   there is nothing to install, because its Python is used. Otherwise MecwaySectionProps
+   searches the `PATH` and the default folders. When numpy or scipy is missing, the
+   window says so at *Calculate*, with the command to install them and the choice to do
+   that right away in a separate window:
+
+   ```bash
+   python -m pip install numpy scipy
+   ```
+
+   Without any Python, first install it from [python.org](https://www.python.org). To
+   use the extra Code-Aster properties (§5):
    [MecwayAsterBridge](https://github.com/trednuK/MecwayAsterBridge).
 2. Download this repository (on GitHub *Code* > *Download ZIP*, unzip) or clone it, e.g.
    to `Documents\GitHub\MecwaySectionProps`.
@@ -44,13 +52,14 @@ when you choose the language in the window; not in git):
 | `language` | `nl` or `en` (the NL/EN buttons of the window) | the Windows language |
 | `accuracy` | `coarse`, `normal`, `fine` or `very_fine` (the *Accuracy* choice) | `normal` |
 | `work_dir` | work folder for input, result and log | `WorkDir` next to `Scripts` |
-| `aster_python` | path of a `python.exe` with numpy and scipy | found in the Code-Aster installation |
+| `python` | path of a `python.exe` with numpy and scipy (the old name `aster_python` also works) | searched: Code-Aster, `PATH`, default folders |
+| `python_found` | the Python the search found (written by the program) | - |
 
 ## 2. Use
 
 1. In Mecway, in **face selection** (*Select faces*), select the faces of the
    cross-section: for example the end faces of an extruded profile or the cut face of a
-   solid. All faces must lie in one flat plane.
+   solid. All faces must lie in one flat plane. If the model has no mesh yet, see §2.1.
 2. Start *Tools* > `MecwaySectionProps`. The window stays open next to Mecway: you can
    make another selection and click **Calculate** again. Starting the script a second
    time brings the open window to the front.
@@ -65,8 +74,11 @@ when you choose the language in the window; not in git):
      CAD face that the selected mesh faces lie on and uses its **exact** boundary (lines,
      circles, ellipses, B-splines), independent of the mesh density. Select one or more
      mesh faces on the CAD face; the whole CAD face counts. Several adjacent CAD faces in
-     the same plane are merged. The model must be saved (the link component → STEP file
-     is in the `.liml`).
+     the same plane are merged. The STEP file comes from the saved `.liml`. If the model
+     is not saved, the window asks which file it is and remembers that while it is open.
+     With *Cancel*, or when there is no STEP face at that place, the boundary of the mesh
+     is used and the results say so. Assemblies work too: the face is looked up at the
+     position Mecway shows.
 4. Optionally choose the **Accuracy** (the fineness of the mesh the section is analysed
    on): *Coarse* (about 1000 quadratic triangles), *Normal* (about 3000, default), *Fine*
    (about 10000) or *Very fine* (about 30000); in thin walls also more elements across
@@ -96,6 +108,27 @@ still run; every repair is listed as a note under the table:
 - A gap is only closed up to 2% of the size of the section; a larger one stops the
   analysis with the location of the gap. A real slot (with its own edges) has no free
   ends and therefore stays open.
+
+### 2.1 STEP without a mesh
+
+Mecway does not pass a surface selected in the *Geometry* view on to scripts, not even
+when the model is saved; the API only knows mesh faces. No mesh is made: that takes too
+long and is not needed. It works like this:
+
+1. Click **Calculate** in a model without elements. The script reads the STEP file and
+   puts all planar faces, at their place in the assembly, in the model as temporary
+   faces in the component `SectionProps_tijdelijk` (a few seconds). If the model is not
+   saved, the window first asks for the STEP file.
+2. Show the model in Mecway, choose *Select faces* (key `f`) and click the face of the
+   section. Element selection works too.
+3. Click **Calculate** again. The boundary comes exactly from the STEP file; nothing is
+   calculated on the temporary faces.
+
+After the calculation the script removes everything it added; that also happens when
+you close the window earlier. If the calculation fails, the faces stay, so you can choose
+another face. If the component stays behind anyway (Mecway stopped), the next start of
+the window removes it; do not save the model while the faces are there. A model with its
+own mesh is never touched.
 
 ## 3. What the window shows
 
@@ -227,10 +260,16 @@ boundaries.
   45° per element misses 0.2% of the area). For curved boundaries prefer *CAD face* or a
   finer mesh.
 - *CAD face*: only flat STEP faces with lines, circles, ellipses, polylines and
-  (rational) B-splines; no assembly placements (one STEP geometry per component, as
-  Mecway reads it).
+  (rational) B-splines. Assemblies: placements through `ITEM_DEFINED_TRANSFORMATION`,
+  also nested, measured on Mecway 35; `MAPPED_ITEM` is not supported.
 - Separate parts: no J, Iw, shear centre or shear, and no *General section*.
-- The window only works in Mecway with Windows Forms and a Code-Aster installation.
+- The window only works in Mecway with Windows Forms and with Python 3 with numpy and
+  scipy.
+- A surface selected in the *Geometry* view cannot be read (§2.1).
+- Mecway 34 and 35 were both tested, also with a STEP assembly (the faces come from the
+  STEP file itself, so Mecway need not be able to read the assembly). Mecway's free
+  edition refuses scripts above 1000 nodes; the temporary faces of a larger model can
+  then not be removed automatically.
 
 ## 8. References
 

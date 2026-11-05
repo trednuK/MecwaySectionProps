@@ -18,18 +18,17 @@ stored in the model as an `#ASTER-SECTIE` line, which
 
 ![The window](docs/images/window_en.png)
 
-It is the Mecway version of AreaPropsForAlibre, without extra Python packages: the
-analysis (a quadratic triangle mesh of the section and the finite element formulation of
-Pilkey, as the package sectionproperties uses) runs in the Python that comes with
-Code-Aster (numpy and scipy).
+It is the Mecway version of AreaPropsForAlibre: the analysis (a quadratic triangle mesh
+of the section and the finite element formulation of Pilkey, as the package
+sectionproperties uses) runs in Python with numpy and scipy.
 
 ## Requirements
 
-- Mecway 34 (Windows), with its scripting (IronPython 2.7.9) and Windows Forms.
-- Code-Aster for Windows (e.g. 17.4 in `%LOCALAPPDATA%\code_aster`): only its Python
-  with numpy and scipy is used; it is found automatically.
-
-Nothing else needs to be installed.
+- Mecway 34 or 35 (Windows), with its scripting (IronPython 2.7.9) and Windows Forms.
+- Python 3 with numpy and scipy (scipy 1.3 or newer). This is a prerequisite: Python is
+  not included. The Python of a Code-Aster installation is found automatically; so is
+  another Python with these packages. If numpy or scipy is missing, the window says so
+  and offers to run `python -m pip install numpy scipy`.
 
 ## Installation
 
@@ -45,6 +44,9 @@ Nothing else needs to be installed.
 2. *Tools* > *MecwaySectionProps*. The window stays open next to Mecway.
 3. Choose *Mesh faces* or *CAD face* and the *Accuracy* (mesh fineness), click
    **Calculate**. *Copy* puts the table on the clipboard, *Copy image* the drawing.
+   A STEP model or assembly without a mesh is not meshed: its planar faces appear as
+   temporary faces in seconds; click one and **Calculate** again, and they are removed.
+   A surface selected in Mecway's *Geometry* view cannot be read by scripts.
 4. Optionally **Create general section** (material name, component, copy E/ν/ρ, store the
    extra Code-Aster properties).
 
@@ -62,10 +64,10 @@ EZ, JG, IYR2, IZR2 within 1e-6); GUI-tested in Mecway 34. Details in the documen
 
 - `Scripts/`: `MecwaySectionProps.py` (entry point), `section_gui.py`, `section_mecway.py`,
   `section_utils.py` (IronPython 2.7, inside Mecway); `section_analysis.py`,
-  `section_mesh.py`, `section_fem.py` (CPython 3 with numpy/scipy, started as a
+  `section_mesh.py`, `section_fem.py` (Python 3 with numpy/scipy, started as a
   process); `section_step.py` (STEP reader, both).
 - Tests: `python tests/test_section_mecway.py`, `python tests/test_section_step.py`,
-  `python tests/test_section_analysis.py` (reruns itself with Code-Aster's Python), and
+  `python tests/test_section_analysis.py` (reruns itself with a Python with numpy/scipy), and
   in Mecway's IronPython without Mecway: `tools/run_ipy.ps1 -Script <test>`.
   `tests/section_aster_check.py` compares with `MACR_CARA_POUTRE` (runs Code-Aster).
 - Conventions: [AGENTS.md](AGENTS.md).

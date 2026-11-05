@@ -15,11 +15,20 @@ and module overview: `Scripts/MecwaySectionProps.py`. User docs: `docs/` (Dutch)
   only module that calls it. All `mw` calls run on Mecway's script thread
   (`section_gui._MwCaller`); the window has its own STA thread.
 - The analysis (`section_analysis.py`, `section_mesh.py`, `section_fem.py`) is CPython 3
-  with numpy and scipy only: the Python of the Code-Aster installation
-  (`section_utils.aster_python`). No pip packages, ever (the user runs only Mecway and
-  Code-Aster). `section_step.py` must work in both.
+  with numpy and scipy only. That Python is a prerequisite the user installs, never
+  bundled: `section_utils.find_python` takes Code-Aster's, then the `PATH` and default
+  folders; when missing, the window gives the command and offers to run pip, only after
+  the user's yes, and never in Code-Aster's Python. No other packages.
+  `section_step.py` must work in both.
 - Mecway API: only what is in Mecway's API reference (Help > API reference); do not copy
   text from it or from the manual. Values through the API are SI.
+  `mw.selected_faces()` is empty for a surface selected in the Geometry view, so a model
+  without elements gets temporary tri3 faces from the STEP file
+  (`section_mecway.prepare`), which must always be removed again. Never
+  `mw.generate_mesh()`: it meshes every part.
+- STEP assemblies: `x_parent = inv(A_child) A_parent x_child` (Open CASCADE's order,
+  measured on Mecway 35, `tests/data/section_step/assembly_rect_hole.step`). Not the
+  other order: the two only agree when a frame is the identity.
 
 ## Contract with MecwayAsterBridge
 
