@@ -132,6 +132,8 @@ own mesh is never touched.
 
 ## 3. What the window shows
 
+![The window with an angle 150 x 150 x 10](../images/window_en.png)
+
 **Axes.** The section is seen from outside the solid (as in AreaPropsForAlibre): the
 normal n points out of the elements, y is the global Y axis projected onto the plane (or
 −Z/+Z for a face normal to Y) and x = y × n. The origin is the model origin, so the
@@ -165,6 +167,8 @@ At the bottom of the window:
   saved or reopened; save it yourself (MecwayAsterBridge also does at every run). Click once
   in the tree if the new material (under *Unused Materials*) or the *custom model
   definition* is not shown yet.
+- **Set the V axis of the beam**: gives the beams of the component the right *Element
+  orientation* (see below).
 
 The material gets a *General section* with:
 

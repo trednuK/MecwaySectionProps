@@ -8,6 +8,8 @@
   Skew beams and beams with an orientation of their own are left alone, with a note.
 - **Beams against the normal** get their data mirrored in W (`EZ`, `IYR2`, recovery point,
   outline), so that the section is right in both directions.
+- **Documentation**: new window images in Dutch and English, made with `tools/gui_cap.py`
+  without Mecway; advice to use `POU_D_TG` for open sections in Code-Aster.
 - **`** SECTIE-RICHTING` line**: the V axis and direction a section belongs to, for
   MecwayAsterBridge to warn about a beam that no longer fits.
 

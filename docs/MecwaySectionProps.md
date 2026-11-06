@@ -134,6 +134,8 @@ vlakjes er staan. Een model met een eigen mesh wordt nooit aangeraakt.
 
 ## 3. Wat het venster toont
 
+![Het venster met een hoekstaal 150 x 150 x 10](images/window_nl.png)
+
 **Assen.** De doorsnede wordt bekeken van buiten het volume (zoals AreaPropsForAlibre):
 de normaal n wijst uit de elementen, y is de globale Y-as geprojecteerd op het vlak (of
 −Z/+Z bij een vlak loodrecht op Y) en x = y × n. De oorsprong is die van het model, dus het
@@ -168,6 +170,8 @@ Onderaan het venster:
   wordt niet opgeslagen of heropend; sla het zelf op (MecwayAsterBridge doet dat ook bij
   elke run). Klik eenmaal in de boom als het nieuwe materiaal (onder *Unused
   Materials*) of de *custom model definition* nog niet zichtbaar is.
+- **V-as van de balk zetten**: geeft de balken van de component de juiste *Element
+  orientation* (zie hieronder).
 
 Het materiaal krijgt een *General section* met:
 

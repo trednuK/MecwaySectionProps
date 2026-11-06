@@ -63,6 +63,9 @@ python tests/test_section_analysis.py
 powershell -ExecutionPolicy Bypass -File tools/run_ipy.ps1 -Script tests/test_section_mecway.py
 ```
 
+`tools/gui_cap.py` makes the window images of `docs/images/` offscreen, without Mecway, from
+an own example (`tools/gui_cap_data.py`).
+
 A real run is only possible in Mecway (computer use on the open instance; never on the
 user's own model files). `WorkDir/` and `Scripts/section_settings.json` are local (not
 in git).
