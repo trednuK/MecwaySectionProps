@@ -17,9 +17,11 @@
 #   create_general_section(...)   Mecway material with a general section
 #   shape_lines(material, res)    the simplified outline as ** SECTIE-VORM
 #                                 lines
-#   store_aster_line(...)         #ASTER-SECTIE and SECTIE-VORM lines as an
-#                                 extra custom model definition (import of a
-#                                 small .liml)
+#   direction_line(...)           the ** SECTIE-RICHTING line
+#   beam_plan(...)                what assigning means for the beams
+#   assign_section(...)           the material, the lines above as an extra
+#                                 custom model definition and the V axis of
+#                                 the beams (import of a small .liml)
 #
 # Coordinates: Mecway's API and the .liml use metres; everything here is SI.
 # The 2D frame of the section is as AreaPropsForAlibre: the face seen from
@@ -78,6 +80,17 @@ SHAPE_TOL = 0.002       # simplification, relative to the size of the section
 # Every creation adds these lines to the model; the API cannot remove them.
 SHAPE_POINTS = 40       # at most per loop
 SHAPE_TOTAL = 120       # at most over all loops
+# The direction the section belongs to, read by MecwayAsterBridge to warn about
+# a beam that does not fit. A line of its own for the reason above; an older
+# bridge passes over it.
+DIRECTION_PREFIX = u"** SECTIE-RICHTING "
+# Values that change sign when a beam sees the section mirrored in W (a beam
+# running against the normal, see for_beam). The rest of the line is even in W.
+MIRROR_KEYS = ("EZ", "IYR2")
+# Element selections of the Element orientation cards of this tool.
+ORIENT_PREFIX = "SECTION_V_"
+BEAM_TOL_DEG = 1.0      # a beam this close to the normal counts as along it
+SAME_V_DEG = 0.01       # Mecway's default V this close needs no card
 
 
 # ==========================================
@@ -1053,11 +1066,13 @@ def read_results(proc, dst):
 # ==========================================
 def principal_loops(res):
     """The loops of the results in principal coordinates about the centroid:
-    [[(v, w), ...], ...]."""
+    [[(v, w), ...], ...], as the beam sees them (for_beam)."""
     cx, cy = res["centroid"]
     phi = math.radians(res["phi_deg"])
     c, s = math.cos(phi), math.sin(phi)
-    return [[((x - cx) * c + (y - cy) * s, -(x - cx) * s + (y - cy) * c)
+    sign = -1.0 if res.get("mirror_w") else 1.0
+    return [[((x - cx) * c + (y - cy) * s,
+              sign * (-(x - cx) * s + (y - cy) * c))
              for x, y in loop] for loop in res.get("loops", [])]
 
 
@@ -1133,6 +1148,10 @@ def aster_line(material, res):
     # The checked values exactly as written into the Mecway material.
     aster["A"], aster["IY"] = res["area"], res["i11_c"]
     aster["IZ"], aster["JX"] = res["i22_c"], res["j"]
+    if res.get("mirror_w"):
+        for key in MIRROR_KEYS:
+            if aster.get(key) is not None:
+                aster[key] = -aster[key]
     parts = []
     for key in ASTER_KEYS:
         if aster.get(key) is not None:
@@ -1223,38 +1242,328 @@ def _xml_escape(text):
             .replace(">", "&gt;"))
 
 
-def aster_line_liml(text, version="34"):
-    """A .liml with only a custom model definition holding `text`."""
-    return u'<liml version="{0}">\n  <{1}>{2}</{1}>\n</liml>\n'.format(
-        version, CUSTOM_TAG, _xml_escape(text))
+def direction_line(material, v, u):
+    """The ** SECTIE-RICHTING line (contract in AGENTS.md): v = the V axis a
+    beam needs, u = the beam direction the stored data are written for."""
+    numbers = u"V=%.6g %.6g %.6g, U=%.6g %.6g %.6g" % tuple(
+        c + 0.0 for c in tuple(v) + tuple(u))     # + 0.0: no "-0"
+    return DIRECTION_PREFIX + u"{0}: {1}".format(material, numbers)
 
 
-def store_aster_line(mw, material, res):
+def orientation_xml(selection, v):
+    """An Element orientation card on an element selection, and that
+    selection, empty. The two must come in one import: a card alone, on a
+    selection the model already has, comes in with no selection at all, while
+    this pair stays linked, so that add_to_named_selection fills it (measured
+    on Mecway 35, 6 Nov 2026: a solve gives the hand values). The API has no
+    call for a card. All seven children of the card are needed; a zero U
+    vector means not given. On Mecway 34 NOT verified."""
+    name = _xml_escape(selection).replace('"', "&quot;")
+    vector = u"<vx>%.15g</vx><vy>%.15g</vy><vz>%.15g</vz>" % tuple(v)
+    return (u'  <orientation selection="{0}">\n'
+            u'    <ux>0</ux><uy>0</uy><uz>0</uz>\n'
+            u'    {1}\n'
+            u'    <angleu>0 &#176;</angleu>\n'
+            u'  </orientation>\n'
+            u'  <elementselection name="{0}">\n'
+            u'  </elementselection>\n'.format(name, vector))
+
+
+def aster_line_liml(text, version="34", extra=u""):
+    """A .liml with a custom model definition holding `text` (none when
+    empty) and `extra`, more XML at the top level."""
+    custom = u""
+    if text:
+        custom = u'  <{0}>{1}</{0}>\n'.format(CUSTOM_TAG, _xml_escape(text))
+    return u'<liml version="{0}">\n{1}{2}</liml>\n'.format(version, custom,
+                                                          extra)
+
+
+# ==========================================
+# THE BEAM: DIRECTION AND ORIENTATION
+# ==========================================
+def principal_axis(res, plane):
+    """Principal axis 1 as a global unit vector: the V axis of the beam."""
+    phi = math.radians(res["phi_deg"])
+    return _norm(_add(_mul(plane["u"], math.cos(phi)),
+                      _mul(plane["v"], math.sin(phi))))
+
+
+def default_v(u):
+    """Mecway's V axis of a beam along u without any orientation: in the XY
+    plane, Z x U, or Y for a beam along Z (manual: gradient below 0.01%)."""
+    if math.sqrt(u[0] * u[0] + u[1] * u[1]) < 1e-4 * abs(u[2]):
+        return (0.0, 1.0, 0.0)
+    return _norm(_cross((0.0, 0.0, 1.0), u))
+
+
+def _angle(a, b):
+    """Angle between two vectors in degrees."""
+    c = _cross(a, b)
+    return math.degrees(math.atan2(math.sqrt(_dot(c, c)), _dot(a, b)))
+
+
+def beam_axes(mw, component):
+    """[(element, U)] of the beams of the component: U = unit vector from the
+    first to the last node (a line3 is c0, m, c1)."""
+    out = []
+    for eid in mw.component_elements(component):
+        if mw.element_shape(eid) not in ("line2", "line3"):
+            continue
+        nodes = list(mw.nodes(eid))
+        a, b = mw.node(nodes[0]), mw.node(nodes[-1])
+        d = (float(b.x - a.x), float(b.y - a.y), float(b.z - a.z))
+        if _dot(d, d) > 0.0:
+            out.append((int(eid), _norm(d)))
+    return out
+
+
+def beam_directions(beams, normal):
+    """{"along", "against", "skew", "worst"}: the number of beams along and
+    against the normal, the number further from it than BEAM_TOL_DEG, and the
+    largest such angle in degrees (in either sense)."""
+    out = {"along": 0, "against": 0, "skew": 0, "worst": 0.0}
+    for _, u in beams:
+        angle = _angle(u, normal)
+        off = min(angle, 180.0 - angle)
+        out["worst"] = max(out["worst"], off)
+        if off > BEAM_TOL_DEG:
+            out["skew"] += 1
+        elif angle < 90.0:
+            out["along"] += 1
+        else:
+            out["against"] += 1
+    return out
+
+
+def _odd(res, shift, moment):
+    """True when res["aster"] has a value that makes the two senses differ:
+    a shift of the shear centre or a moment of r^2, relative to the section."""
+    aster = res.get("aster") or {}
+    return (abs(aster.get(shift) or 0.0) > 1e-4 * math.sqrt(res["area"]) or
+            abs(aster.get(moment) or 0.0) > 1e-4 * res["area"] ** 2.5)
+
+
+def for_beam(res, mirrored):
+    """The results as a beam against the normal sees them: V is the same, so
+    W = U x V is reversed. EZ, IYR2, the recovery point and the outline change
+    sign in W; the other values are even in W."""
+    return dict(res, mirror_w=True) if mirrored else res
+
+
+def worst_turn(res, beams, v):
+    """Largest angle in degrees between Mecway's default V and v. V and -V
+    are the same for a section symmetric about W."""
+    worst = 0.0
+    for _, u in beams:
+        angle = _angle(default_v(u), v)
+        if not _odd(res, "EY", "IZR2"):
+            angle = min(angle, 180.0 - angle)
+        worst = max(worst, angle)
+    return worst
+
+
+_CARD_RE = re.compile(r'<orientation\b[^>]*\bselection="([^"]*)"')
+_ELEM_RE = re.compile(r'<elem\b[^>]*\beid="(\d+)"[^>]*\borientation[uv][xyz]=')
+
+
+def foreign_orientation(mw, eids):
     """
-    Put the #ASTER-SECTIE line of `material` and the SECTIE-VORM lines of
-    its outline in the model: a .liml with only a custom model definition
-    is imported into the open model. Mecway then
-    keeps it as an extra custom model definition (CCX branch of the tree);
-    MecwayAsterBridge reads every one in file order, so a newer line of the
-    same material wins (its bridge_from_liml._section_extras). Tested in
-    Mecway 34 (23 Oct 2026): no save or reopen needed, also for a model
-    without a file. Saving the model and reopening it (the first version)
-    closed this window in Mecway's GUI. Returns the line.
+    The number of the elements eids that have an orientation not made by this
+    tool, or None when that cannot be known: the API cannot read one, so this
+    looks in the saved file, line by line, up to <solution>. Changes that were
+    not saved are not seen.
     """
-    line = aster_line(material, res)
-    path = os.path.join(work_folder(), "section_aster_line.liml")
-    version = u"34"
+    path = mw.file_name()
+    if not path or not os.path.isfile(path):
+        return None
+    wanted = set(eids)
+    found = set()
+    names = []
     try:
-        version = u"{0}".format(mw.version()).split(".")[0] or version
-    except Exception:
-        pass
+        with io.open(path, "r", encoding="utf-8", errors="replace") as f:
+            for text in f:
+                if "<solution" in text:
+                    break
+                if "orientation" not in text:
+                    continue
+                m = _ELEM_RE.search(text)
+                if m and int(m.group(1)) in wanted:
+                    found.add(int(m.group(1)))
+                m = _CARD_RE.search(text)
+                if m:
+                    names.append(_xml_unescape(m.group(1)))
+    except (IOError, OSError):
+        return None
+    known = list(mw.named_selections())
+    for name in names:
+        if name in known and not name.startswith(ORIENT_PREFIX):
+            found.update(int(e) for e in mw.named_selection(name)
+                         if int(e) in wanted)
+    return len(found)
+
+
+def release_orientation(mw, eids):
+    """Take the elements out of the selections of earlier cards of this tool:
+    Mecway does not solve with two cards on one element. A selection is never
+    deleted, because its card would stay behind without a selection, which
+    MecwayAsterBridge reports as an error on every run; a card on an empty
+    selection covers nothing."""
+    wanted = set(eids)
+    for name in mw.named_selections():
+        if name.startswith(ORIENT_PREFIX):
+            for e in list(mw.named_selection(name)):
+                if int(e) in wanted:
+                    mw.remove_from_named_selection(name, int(e))
+
+
+def selection_name(material):
+    """Name of the element selection of the card of `material`."""
+    return ORIENT_PREFIX + re.sub(r"[^0-9A-Za-z_]", "_", material)
+
+
+def beam_plan(mw, res, plane, component, orient):
+    """
+    What assigning the section to `component` comes down to: {"beams", "v",
+    "u", "mirrored", "card", "notes"}. card: the elements that get an Element
+    orientation card, or None. notes: what the user must know, one text each.
+    Without a component there is only the direction of the data.
+    """
+    normal = plane["normal"]
+    v = principal_axis(res, plane)
+    plan = {"beams": [], "v": v, "u": normal, "mirrored": False, "card": None,
+            "notes": []}
+    beams = beam_axes(mw, component) if component else []
+    plan["beams"] = beams
+    if not beams:
+        return plan
+    eids = [e for e, _ in beams]
+    count = beam_directions(beams, normal)
+    vector = axis_name(v)
+    notes = plan["notes"]
+    if count["skew"]:
+        notes.append(tr(
+            u"{0} balken staan tot {1} graden schuin op de normaal van dit "
+            u"vlak: de V-as is niet gezet. Geef ze zelf een Element "
+            u"orientation met V-vector {2} als dat de bedoeling is.",
+            u"{0} beams are up to {1} degrees off the normal of this face: "
+            u"the V axis was not set. Give them an Element orientation with V "
+            u"vector {2} yourself if that is what you want.").format(
+                count["skew"], "%.1f" % count["worst"], vector))
+    if count["against"] > count["along"]:
+        plan["mirrored"] = True
+        plan["u"] = _mul(normal, -1.0)
+        notes.append(tr(
+            u"De balk loopt tegen de normaal in: de gegevens zijn in W "
+            u"gespiegeld opgeslagen.",
+            u"The beam runs against the normal: the data were stored "
+            u"mirrored in W."))
+    if count["along"] and count["against"] and _odd(res, "EZ", "IYR2"):
+        notes.append(tr(
+            u"De balken lopen niet allemaal dezelfde kant op en de doorsnede "
+            u"is niet symmetrisch om V: {0} balken zien hem gespiegeld.",
+            u"The beams do not all run the same way and the section is not "
+            u"symmetric about V: {0} beams see it mirrored.").format(
+                min(count["along"], count["against"])))
+    if not orient:
+        turn = worst_turn(res, beams, v)
+        if turn > BEAM_TOL_DEG:
+            notes.append(tr(
+                u"De V-as is niet gezet. Zonder Element orientation staat de "
+                u"balk tot {0} graden verkeerd gedraaid en kloppen stijfheid "
+                u"en spanning niet. V-vector: {1}.",
+                u"The V axis was not set. Without an Element orientation the "
+                u"beam is turned up to {0} degrees the wrong way, and its "
+                u"stiffness and stress are wrong. V vector: {1}.").format(
+                    "%.1f" % turn, vector))
+        return plan
+    if count["skew"]:
+        return plan
+    foreign = foreign_orientation(mw, eids)
+    if foreign:
+        notes.append(tr(
+            u"{0} balken hebben in het opgeslagen model al een eigen "
+            u"oriëntatie: de V-as is niet gezet, want Mecway rekent niet met "
+            u"twee oriëntaties op één element. Zet daar zelf V-vector {1}.",
+            u"{0} beams already have an orientation of their own in the saved "
+            u"model: the V axis was not set, because Mecway does not solve "
+            u"with two orientations on one element. Set V vector {1} there "
+            u"yourself.").format(foreign, vector))
+        return plan
+    if foreign is None:
+        notes.append(tr(
+            u"Het model is nog niet opgeslagen: een eigen oriëntatie op deze "
+            u"balken kon niet worden gecontroleerd.",
+            u"The model has not been saved: an orientation of your own on "
+            u"these beams could not be checked."))
+    release_orientation(mw, eids)
+    if worst_turn(res, beams, v) > SAME_V_DEG:
+        plan["card"] = eids
+    return plan
+
+
+def _import_fragment(mw, text):
+    """Import the .liml text into the open model; returns the selections it
+    added."""
+    path = os.path.join(work_folder(), "section_aster_line.liml")
     with io.open(path, "w", encoding="utf-8") as f:
-        f.write(aster_line_liml(
-            u"\n".join([line] + shape_lines(material, res)), version))
+        f.write(text)
+    before = set(mw.named_selections())
     mw.import_file(path, "m")
-    log("INFO: MecwaySectionProps: '{0}' and the outline imported as a "
-        "custom model definition.".format(line))
-    return line
+    return [n for n in mw.named_selections() if n not in before]
+
+
+def assign_section(mw, name, res, plane, component=None, copy_from=None,
+                   store=True, orient=True):
+    """
+    The general section `name`, assigned to `component`, with the data the
+    way its beams see them; with store the ASTER-SECTIE, SECTIE-VORM and
+    SECTIE-RICHTING lines; with orient the V axis of the beams. All of that
+    comes in one import: a .liml with only a custom model definition is
+    imported into the open model and Mecway keeps it as an extra one (CCX
+    branch of the tree); MecwayAsterBridge reads every one in file order, so a
+    newer line of the same material wins (its
+    bridge_from_liml._section_extras). Tested in Mecway 34 (23 Oct 2026): no
+    save or reopen needed, also for a model without a file. Saving the model
+    and reopening it (the first version) closed this window in Mecway's GUI.
+    Returns (material, selection of the card or None, notes).
+    """
+    plan = beam_plan(mw, res, plane, component, orient)
+    data = for_beam(res, plan["mirrored"])
+    material = create_general_section(mw, name, data, component, copy_from)
+    text = u""
+    if store:
+        line = aster_line(material, data)
+        text = u"\n".join([line] + shape_lines(material, data) +
+                          [direction_line(material, plan["v"], plan["u"])])
+    extra = u""
+    if plan["card"]:
+        extra = orientation_xml(selection_name(material), plan["v"])
+    selection = None
+    if text or extra:
+        version = u"34"
+        try:
+            version = u"{0}".format(mw.version()).split(".")[0] or version
+        except Exception:
+            pass
+        added = _import_fragment(mw, aster_line_liml(text, version, extra))
+        if store:
+            log("INFO: MecwaySectionProps: '{0}' and the outline imported as "
+                "a custom model definition.".format(line))
+        if plan["card"]:
+            if len(added) != 1:
+                raise ValueError(tr(
+                    u"De selectie voor de V-as is niet aangemaakt.",
+                    u"The selection for the V axis was not created."))
+            selection = added[0]
+            for e in plan["card"]:
+                mw.add_to_named_selection(selection, e)
+            log(u"INFO: MecwaySectionProps: V axis {0} set on {1} beams, "
+                u"selection '{2}'.".format(axis_name(plan["v"]),
+                                           len(plan["card"]), selection))
+    for note in plan["notes"]:
+        log(u"WARNING: MecwaySectionProps: {0}".format(note))
+    return material, selection, plan["notes"]
 
 
 try:

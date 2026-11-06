@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- **V axis of the beam**: *Create general section* now sets the Element orientation of
+  the beams it assigns the section to (box on by default). Without it the beam is turned
+  and its stiffness is wrong. The API has no call for this: the card comes in by import.
+  Skew beams and beams with an orientation of their own are left alone, with a note.
+- **Beams against the normal** get their data mirrored in W (`EZ`, `IYR2`, recovery point,
+  outline), so that the section is right in both directions.
+- **`** SECTIE-RICHTING` line**: the V axis and direction a section belongs to, for
+  MecwayAsterBridge to warn about a beam that no longer fits.
+
 ## V2026.1 (2026-11-06)
 
 - **Shape of the section in the model**: with the extra Code-Aster properties, *Create

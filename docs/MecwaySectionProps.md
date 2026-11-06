@@ -181,16 +181,48 @@ Het materiaal krijgt een *General section* met:
 | Stress recovery point (V; W) | het randpunt het verst van het zwaartepunt, in hoofdassen |
 
 **Oriëntatie van de balk.** Mecway's *General section* kent alleen hoofdtraagheden; de
-balk moet dus zo gedraaid zijn dat zijn V-as langs hoofdas 1 ligt. Geef in Mecway
-(*Loads & Constraints* > *Element orientation*, of *Element properties*) als V-vector
-de richting uit de tabel (*V-vector (as 1)*). Mecway's U-as loopt langs de balk (knoop
-1 → 2) en W = U × V; dat is hetzelfde als x, y, z van Code-Aster.
-`EY`, `EZ` (en `IZR2`) gelden voor een balk die in de richting van de normaal n loopt
-(*Balkas U = normaal n* in de tabel). Loopt de balk de andere kant op, dan ziet hij de
-doorsnede gespiegeld; voor een doorsnede die symmetrisch is om een hoofdas maakt dat
-niet uit.
+balk moet dus zo gedraaid zijn dat zijn V-as langs hoofdas 1 ligt. Anders kloppen niet
+alleen de getekende stand, maar ook de stijfheid en de spanningen. Mecway's U-as loopt
+langs de balk (knoop 1 → 2) en W = U × V; dat is hetzelfde als x, y, z van Code-Aster.
+
+Met **V-as van de balk zetten** (standaard aan) regelt de tool dit bij het toewijzen aan
+een component:
+
+| Situatie | Wat er gebeurt |
+|---|---|
+| Balken langs de normaal n | *Element orientation* met de V-vector op een elementselectie `SECTION_V_<materiaal>`. Geen kaart als Mecway's standaard-V al klopt |
+| Balken tegen n in | Hetzelfde, en de gegevens worden in W gespiegeld opgeslagen (`EZ`, `IYR2`, recovery point, omtrek) |
+| Beide richtingen door elkaar | De meerderheid telt; een melding als de doorsnede niet symmetrisch is om V, want de rest ziet hem gespiegeld |
+| Balken meer dan 1° schuin op n | Niets gezet, een melding met de V-vector |
+| Eigen oriëntatie op de balken | Niets gezet, een melding: Mecway rekent niet met twee oriëntaties op één element |
+
+De tool kan een eigen oriëntatie alleen in het **opgeslagen** model zien, omdat de API
+die niet kan lezen. Wijzigingen die nog niet zijn opgeslagen ziet hij niet; bij een model
+zonder bestand staat dat in de melding. Wijs je de doorsnede opnieuw toe, dan gaan de
+elementen uit de oude selectie; die blijft leeg in het model staan, met zijn kaart, want
+de API kan een kaart niet verwijderen. Mag via het vinkje niets worden gezet en staat de
+balk meer dan 1° verkeerd, dan meldt de tool dat met de V-vector. Dan geef je zelf
+(*Loads & Constraints* > *Element orientation*, of *Element properties*) als V-vector de
+richting uit de tabel (*V-vector (as 1)*). Of *Ongedaan maken* deze stappen terugdraait,
+is niet getest. Getest op Mecway 35; op 34 niet.
+
+De tool verschuift geen knopen. De balklijn hoort
+op het zwaartepunt (*Zwaartepunt globaal* in de tabel), anders staat de getekende
+doorsnede ernaast.
+
+**Open profiel in Code-Aster: kies `POU_D_TG`.** Gemeten op een open profiel met het
+dwarskrachtcentrum 82 mm van het zwaartepunt, ingeklemd onder eigen gewicht, tegen een
+volumemodel: `POU_D_TG` volgt de buiging en de wringing binnen 1,2%. `POU_D_E` krijgt wel
+`EY` en `EZ` maar geen `JG`, en geeft een 5,6 keer te grote wringing. Mecway's eigen balk
+neemt de wringing door die afstand niet mee (Mecway-handleiding, *Beams*).
 
 ## 5. Extra eigenschappen voor Code-Aster (`#ASTER-SECTIE`)
+
+De regels hieronder gaan samen in één *custom model definition*. De laatste is
+`** SECTIE-RICHTING <materiaal>: V=vx vy vz, U=ux uy uz`: de V-as die de balk moet hebben
+en de balkrichting waarvoor de gegevens gelden, als globale eenheidsvectoren. Met die
+regel waarschuwt MecwayAsterBridge als een balk later niet meer past, bijvoorbeeld na
+een andere oriëntatie.
 
 Code-Aster's `AFFE_CARA_ELEM` (`SECTION='GENERALE'`) kent meer kenmerken dan Mecway's
 *General section* (EDF R&D, 2021a §9.4.3). De tool schrijft ze in de custom model

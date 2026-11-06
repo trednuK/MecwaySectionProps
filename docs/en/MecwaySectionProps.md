@@ -177,17 +177,47 @@ The material gets a *General section* with:
 | Perimeter | perimeter of the outer boundary |
 | Stress recovery point (V; W) | the boundary point farthest from the centroid, in principal axes |
 
-**Beam orientation.** Mecway's *General section* only has principal moments, so the beam
-must be turned such that its V axis lies along principal axis 1. In Mecway
-(*Loads & Constraints* > *Element orientation*, or *Element properties*) enter the
-direction from the table (*V vector (axis 1)*) as the V vector. Mecway's U axis runs
-along the beam (node 1 → 2) and W = U × V; that is the same as x, y, z in Code-Aster.
-`EY`, `EZ` (and `IZR2`) apply to a beam that runs in the direction of the normal n
-(*Beam axis U = normal n* in the table). A beam running the other way sees the section
-mirrored; for a section that is symmetric about a principal axis that makes no
-difference.
+**Beam orientation.** Mecway's *General section* only knows principal inertias, so
+the beam must be turned so that its V axis lies along principal axis 1. If not, it is not
+just the drawn position that is off: stiffness and stress are wrong too. Mecway's U axis
+runs along the beam (node 1 → 2) and W = U × V; that is the same as x, y, z of Code-Aster.
+
+With **Set the V axis of the beam** (on by default) the tool takes care of this when
+assigning to a component:
+
+| Situation | What happens |
+|---|---|
+| Beams along the normal n | *Element orientation* with the V vector on an element selection `SECTION_V_<material>`. No card when Mecway's default V is already right |
+| Beams against n | The same, and the data are stored mirrored in W (`EZ`, `IYR2`, recovery point, outline) |
+| Both directions mixed | The majority counts; a note when the section is not symmetric about V, as the others see it mirrored |
+| Beams more than 1° off n | Nothing set, a note with the V vector |
+| An orientation of your own on the beams | Nothing set, a note: Mecway does not solve with two orientations on one element |
+
+The tool can only see your own orientation in the **saved** model, because the API cannot
+read one. Changes that were not saved are not seen; for a model without a file the note
+says so. When you assign the section again, the elements leave the old selection, which
+stays in the model empty, with its card, because the API cannot remove a card. With the
+box off and the beam more than 1° wrong, the tool says so and gives the V vector. Then
+enter the direction from the table (*V vector (axis 1)*) yourself (*Loads & Constraints* >
+*Element orientation*, or *Element properties*). Whether *Undo* reverts these steps was not
+tested. Tested on Mecway 35; not on 34.
+
+The tool does not move nodes. The beam line belongs on the centroid (*Centroid global* in
+the table), otherwise the drawn section lies next to the part.
+
+**Open section in Code-Aster: choose `POU_D_TG`.** Measured on an open section with the shear
+centre 82 mm from the centroid, clamped under its own weight, against a solid model:
+`POU_D_TG` follows bending and twist within 1.2%. `POU_D_E` does get `EY` and `EZ` but no
+`JG`, and gives 5.6 times too much twist. Mecway's own beam does not include the twist from
+that distance (Mecway manual, *Beams*).
 
 ## 5. Extra properties for Code-Aster (`#ASTER-SECTIE`)
+
+The lines below go together in one *custom model definition*. The last one is
+`** SECTIE-RICHTING <material>: V=vx vy vz, U=ux uy uz`: the V axis the beam must have and
+the beam direction the data are written for, as global unit vectors. With that line
+MecwayAsterBridge warns when a beam no longer fits later, for example after another
+orientation.
 
 Code-Aster's `AFFE_CARA_ELEM` (`SECTION='GENERALE'`) has more characteristics than
 Mecway's *General section* (EDF R&D, 2021a §9.4.3). The tool writes them into the custom

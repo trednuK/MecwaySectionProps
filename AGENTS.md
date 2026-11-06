@@ -41,9 +41,18 @@ The lines `** SECTIE-VORM <material>: N=<points per loop, spaces>, A=<area>` fol
 about the centroid, SI, loops closed implicitly, even-odd interior; P lines concatenate;
 a new N for a material replaces what was read; split on the last colon). They are read by
 MecwayAsterBridge, which draws the section on the beams (`bridge_custom.py`,
-`bridge_section_view.py`) and compares A with the material. Never start them with
-`** ASTER-SECTIE `: the bridge reports such a line as an error. A change of either format
-needs the same change there.
+`bridge_section_view.py`) and compares A with the material. The line
+`** SECTIE-RICHTING <material>: V=vx vy vz, U=ux uy uz` (global unit vectors, `%.6g`) holds
+the V axis a beam needs and the beam direction the data are written for; the newest line of
+a material wins, and the bridge warns about a beam that does not fit. Never start these
+lines with `** ASTER-SECTIE `: the bridge reports such a line as an error. A change of any
+of these formats needs the same change there.
+
+Element orientation has no API. `section_mecway.orientation_xml` imports a card together
+with its empty element selection (a card alone loses its selection), and the script fills
+that selection. Never delete a `SECTION_V_*` selection: its card stays with
+`selection=""`, which the bridge reports as an error on every run; take the elements out
+instead. Two cards on one element make Mecway refuse to solve.
 
 ## Checking
 

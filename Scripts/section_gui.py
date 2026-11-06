@@ -110,6 +110,10 @@ T = {
                  u"(#ASTER-SECTIE in een custom model definition)",
                  u"Store extra Code-Aster properties and the shape "
                  u"(#ASTER-SECTIE in a custom model definition)"),
+    "gs_orient": (u"V-as van de balk zetten (Element orientation)",
+                  u"Set the V axis of the beam (Element orientation)"),
+    "gs_v_set": (u"; V-as gezet via selectie '{0}'",
+                 u"; V axis set through selection '{0}'"),
     "gs_make": (u"General section maken", u"Create general section"),
     "gs_need": (u"Bereken eerst een doorsnede.",
                 u"Calculate a section first."),
@@ -654,7 +658,7 @@ WIDTH = 1180
 TABLE_W = 600
 HEADER_H = 64
 BAR_H = 46
-GS_H = 104
+GS_H = 126
 FOOTER_H = 52
 ROW_H = 21
 PAD = 18
@@ -681,6 +685,7 @@ class _Window(object):
         self.component = None
         self.copy_mat = True
         self.store = True
+        self.orient = True
         self.components = []
         D, F = _forms()
         self.D, self.F = D, F
@@ -979,6 +984,16 @@ class _Window(object):
         def on_store(s, e):
             self.store = s.Checked
         chk.CheckedChanged += on_store
+        gs.Controls.Add(chk)
+        chk = self._native(F.CheckBox())
+        chk.Text = self.t("gs_orient")
+        chk.AutoSize = True
+        chk.Checked = self.orient
+        chk.Location = D.Point(PAD, 90)
+
+        def on_orient(s, e):
+            self.orient = s.Checked
+        chk.CheckedChanged += on_orient
         gs.Controls.Add(chk)
         self.gs_button = self._button(gs, self.t("gs_make"),
                                       self.form.ClientSize.Width - PAD - 200,
@@ -1325,19 +1340,18 @@ class _Window(object):
             self._set_status(self.t("gs_no_j"), True)
             return
         res, comp, store = self.res, self.component, self.store
+        plane, orient = self.plane, self.orient
         name = (self.name or u"Section").strip() or u"Section"
         copy_from = None
         if self.copy_mat and comp:
             copy_from = dict((c, m) for c, m, _ in self.components).get(comp)
 
         def work():
-            mat = smw.create_general_section(self.mw, name, res, comp,
-                                             copy_from)
-            if store:
-                smw.store_aster_line(self.mw, mat, res)
-            return mat, smw.components_info(self.mw)
+            out = smw.assign_section(self.mw, name, res, plane, comp,
+                                     copy_from, store, orient)
+            return out, smw.components_info(self.mw)
         try:
-            mat, self.components = self.caller.call(work)
+            (mat, selection, notes), self.components = self.caller.call(work)
         except Exception as e:
             F.MessageBox.Show(self.form, self.t("gs_failed").format(e),
                               PANEL_TITLE, F.MessageBoxButtons.OK,
@@ -1346,7 +1360,12 @@ class _Window(object):
             return
         self._set_status(self.t("gs_done").format(
             mat, (self.t("gs_assigned").format(comp) if comp else u"") +
-            (self.t("gs_stored") if store else u"")))
+            (self.t("gs_stored") if store else u"") +
+            (self.t("gs_v_set").format(selection) if selection else u"")))
+        if notes:
+            F.MessageBox.Show(self.form, u"\n\n".join(notes), PANEL_TITLE,
+                              F.MessageBoxButtons.OK,
+                              F.MessageBoxIcon.Warning)
 
 
 # ==========================================

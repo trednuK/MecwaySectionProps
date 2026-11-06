@@ -351,6 +351,25 @@ for name in ("rect_hole.step", "l_two_faces.step", "tube.step"):
           "(worst {1:.3f})".format(name, worst),
           listing["faces"] and worst < 0.05 and outward, worst)
 
+# --- a beam against the normal: which values change sign ---------------------
+import section_analysis  # noqa: E402
+import section_mecway as smw  # noqa: E402
+
+cut = [(0.0, 0.0), (0.09, 0.0), (0.09, 0.008), (0.008, 0.008), (0.008, 0.05),
+       (0.0, 0.05)]
+one = section_analysis.run_analysis({"loops": [[list(q) for q in cut]],
+                                     "n_target": 2000})
+flat = smw.principal_loops(one)
+back = section_analysis.run_analysis(
+    {"loops": [[[v, -w] for v, w in lp] for lp in flat], "n_target": 2000})
+check("mirrored section is in principal axes itself", abs(back["phi_deg"]) < 1e-3,
+      back["phi_deg"])
+for key, sign in (("EY", 1.0), ("EZ", -1.0), ("IYR2", -1.0), ("IZR2", 1.0),
+                  ("AY", 1.0), ("AZ", 1.0), ("JG", 1.0), ("RT", 1.0)):
+    a, b = one["aster"][key], back["aster"][key]
+    check("mirror in W: {0} is {1}".format(key, "odd" if sign < 0 else "even"),
+          abs(b - sign * a) < 1e-2 * abs(a), (a, b))
+
 print("total {0:.1f} s".format(time.time() - t0))
 
 sys.exit(1 if check.failed else 0)

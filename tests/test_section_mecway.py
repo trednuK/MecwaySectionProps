@@ -626,6 +626,288 @@ check("import .liml: ASTER line and outline in one definition",
       text.count(u"<ccxmodeldefinition>") == 1 and u"\n** SECTIE-VORM Buis: N="
       in text)
 
+# --- the beam: V axis, direction, mirrored data ------------------------------
+class BeamMw(object):
+    """Beams as Mecway 35 gives them. import_file behaves as measured: a card
+    comes in on its own selection, renamed when the name is taken; a card
+    without that selection in the same file would lose its selection."""
+
+    def __init__(self, ends, path=None):
+        self.ends = ends
+        self.path = path
+        self.selections = {}
+        self.cards = []
+        self.imported = []
+        self.props = {}
+        self.assigned = {}
+
+    def component_elements(self, comp):
+        return sorted(self.ends)
+
+    def element_shape(self, eid):
+        return "line2"
+
+    def nodes(self, eid):
+        return [2 * eid, 2 * eid + 1]
+
+    def node(self, n):
+        p = self.ends[n // 2][n % 2]
+        return Vec(p[0], p[1], p[2])
+
+    def named_selections(self):
+        return list(self.selections)
+
+    def named_selection(self, name):
+        return list(self.selections[name])
+
+    def add_to_named_selection(self, name, e):
+        self.selections[name].append(e)
+
+    def remove_from_named_selection(self, name, e):
+        self.selections[name].remove(e)
+
+    def file_name(self):
+        return self.path
+
+    def version(self):
+        return "35.0.9802"
+
+    def new_material(self, name):
+        return name
+
+    def set_material_type(self, mat, group, kind):
+        pass
+
+    def set_material_property(self, mat, prop, value):
+        self.props[prop] = value
+
+    def set_material(self, comp, mat):
+        self.assigned[comp] = mat
+
+    def import_file(self, path, unit):
+        assert unit == "m"
+        text = io.open(path, encoding="utf-8").read()
+        self.imported.append(text)
+        if u"<orientation " in text:
+            assert u"<elementselection " in text
+            name = text.split(u'<elementselection name="')[1].split(u'"')[0]
+            while name in self.selections:
+                name += u"(2)"
+            self.selections[name] = []
+            self.cards.append(name)
+
+
+a45 = 2.0 ** -0.5
+beam_plane = {"normal": (0.0, 0.0, 1.0), "u": (1.0, 0.0, 0.0),
+              "v": (0.0, 1.0, 0.0)}
+res_b = dict(res, phi_deg=45.0, centroid=[0.0, 0.0], perimeter=0.3, j=1e-9,
+             loops=[[(0.06, 0.0), (0.0, 0.06), (0.0, 0.0)]],
+             aster=dict(res["aster"], EY=0.02, EZ=0.01, IYR2=2e-8, IZR2=3e-8))
+up = {1: ((0, 0, 0), (0, 0, 0.5)), 2: ((0, 0, 0.5), (0, 0, 1.0))}
+down = {1: ((0, 0, 1.0), (0, 0, 0.5)), 2: ((0, 0, 0.5), (0, 0, 0))}
+mixed = {1: up[1], 2: down[2]}
+skew = {1: ((0, 0, 0), (0.1, 0, 1.0))}
+
+v_axis = smw.principal_axis(res_b, beam_plane)
+check("V axis: phi 45 about +Z is (0.707, 0.707, 0)",
+      abs(v_axis[0] - a45) < 1e-12 and abs(v_axis[1] - a45) < 1e-12)
+check("default V as in the manual: Y along Z, Z x U otherwise",
+      smw.default_v((0.0, 0.0, 1.0)) == (0.0, 1.0, 0.0) and
+      smw.default_v((1.0, 0.0, 0.0)) == (0.0, 1.0, 0.0) and
+      smw.default_v((0.0, 1.0, 0.0)) == (-1.0, 0.0, 0.0))
+count = smw.beam_directions(smw.beam_axes(BeamMw(mixed), "B"), (0, 0, 1.0))
+check("beam directions: one along, one against",
+      count["along"] == 1 and count["against"] == 1 and count["skew"] == 0)
+
+work = tempfile.mkdtemp()
+try:
+    section_utils.WORK_DIR = work
+    smw.work_folder = lambda: work
+
+    mw = BeamMw(up)
+    plan = smw.beam_plan(mw, res_b, beam_plane, "B", True)
+    check("beams along n at 45 degrees: a card on both, unsaved model noted",
+          plan["card"] == [1, 2] and not plan["mirrored"] and
+          len(plan["notes"]) == 1)
+    mat, sel, notes = smw.assign_section(mw, u"P", res_b, beam_plane, "B")
+    check("assign: one import with lines, card and selection, filled",
+          len(mw.imported) == 1 and sel == u"SECTION_V_P" and
+          mw.selections[sel] == [1, 2] and mw.cards == [sel] and
+          mw.imported[0].count(u"<ccxmodeldefinition>") == 1)
+    text = mw.imported[0]
+    check("assign: card holds the V vector and all seven children",
+          all(u"<{0}>".format(t) in text for t in
+              ("ux", "uy", "uz", "vx", "vy", "vz", "angleu")) and
+          u"<vx>0.707106781186548</vx>" in text.replace(
+              u"0.7071067811865476", u"0.707106781186548"))
+    line = [t for t in text.split(u"\n") if u"SECTIE-RICHTING" in t][0]
+    check("direction line as in the contract",
+          line.startswith(u"** SECTIE-RICHTING P: V=0.707107 0.707107 0, U=0 "
+                          u"0 1") and
+          not line.startswith(smw.LINE_PREFIX))
+
+    mat, sel2, notes = smw.assign_section(mw, u"P", res_b, beam_plane, "B")
+    check("assign again: the old selection is emptied and stays, so that no "
+          "element has two cards and no card loses its selection",
+          sel2 != sel and mw.selections[sel] == [] and
+          mw.selections[sel2] == [1, 2] and len(mw.cards) == 2)
+
+    mw = BeamMw(up)
+    plain = dict(res_b, phi_deg=90.0)
+    plan = smw.beam_plan(mw, plain, beam_plane, "B", True)
+    check("default V already axis 1: no card", plan["card"] is None)
+    rect = dict(res_b, phi_deg=-90.0,
+                aster=dict(res_b["aster"], EY=0.0, EZ=0.0, IYR2=0.0, IZR2=0.0))
+    plan = smw.beam_plan(BeamMw(up), rect, beam_plane, "B", True)
+    check("default V is -axis 1 of a symmetric section: no card",
+          plan["card"] is None)
+    plan = smw.beam_plan(BeamMw(up), plain.__class__(res_b, phi_deg=-90.0),
+                         beam_plane, "B", True)
+    check("default V is -axis 1 of an open section: a card",
+          plan["card"] == [1, 2])
+
+    mw = BeamMw(down)
+    mat, sel, notes = smw.assign_section(mw, u"P", res_b, beam_plane, "B")
+    text = mw.imported[0]
+    plain_line = smw.aster_line(u"P", res_b)
+    check("beam against n: data mirrored, U reversed, V the same",
+          u"U=0 0 -1" in text and
+          u"V=0.707107 0.707107" in text and u"EZ=-0.01" in text and
+          u"IYR2=-2e-08" in text and u"IZR2=3e-08" in text and
+          u"EY=0.02" in text and u"EZ=0.01" in plain_line and
+          any(u"tegen de normaal" in n or u"against the normal" in n
+              for n in notes))
+    same = smw.recovery_point(res_b)
+    mirror = smw.recovery_point(smw.for_beam(res_b, True))
+    check("beam against n: recovery point mirrored in W",
+          abs(mirror[0] - same[0]) < 1e-12 and abs(mirror[1] + same[1]) < 1e-12)
+    check("the results of the window are not changed", "mirror_w" not in res_b)
+
+    plan = smw.beam_plan(BeamMw(mixed), res_b, beam_plane, "B", True)
+    check("mixed directions, not symmetric about V: card plus a note",
+          plan["card"] == [1, 2] and not plan["mirrored"] and
+          len(plan["notes"]) == 2)
+    even = dict(res_b, aster=dict(res_b["aster"], EZ=0.0, IYR2=0.0))
+    plan = smw.beam_plan(BeamMw(mixed), even, beam_plane, "B", True)
+    check("mixed directions, symmetric about V: no note about it",
+          len(plan["notes"]) == 1)
+
+    plan = smw.beam_plan(BeamMw(skew), res_b, beam_plane, "B", True)
+    check("skew beam: no card, the angle and vector in a note",
+          plan["card"] is None and u"5.7" in plan["notes"][0] and
+          u"0.707" in plan["notes"][0])
+    plan = smw.beam_plan(BeamMw(up), res_b, beam_plane, "B", False)
+    check("box off: no card, a note with the 45 degrees",
+          plan["card"] is None and u"45.0" in plan["notes"][0])
+    plan = smw.beam_plan(BeamMw(up), res_b, beam_plane, None, True)
+    check("no component: no card, no notes",
+          plan["card"] is None and plan["notes"] == [])
+
+    mw = BeamMw(up)
+    smw.assign_section(mw, u"P", res_b, beam_plane, None, store=False)
+    check("nothing to import: no import", mw.imported == [])
+    mw = BeamMw(up)
+    mat, sel, _ = smw.assign_section(mw, u"P", res_b, beam_plane, "B",
+                                     store=False)
+    check("store off: only the card, no custom definition",
+          u"ccxmodeldefinition" not in mw.imported[0] and sel)
+
+    saved = os.path.join(work, "saved.liml")
+
+    def write_model(body):
+        with io.open(saved, "w", encoding="utf-8") as f:
+            f.write(u'<liml version="35">\n' + body + u"\n</liml>\n")
+
+    write_model(u'<elem eid="2" shape="line2" nodes="1 2" orientationvx="1" '
+                u'orientationvy="0" orientationvz="0" />')
+    plan = smw.beam_plan(BeamMw(up, saved), res_b, beam_plane, "B", True)
+    check("saved model: attributes on a beam, no card and a note",
+          plan["card"] is None and len(plan["notes"]) == 1 and
+          smw.foreign_orientation(BeamMw(up, saved), [1, 2]) == 1)
+    write_model(u'<orientation selection="Mine">\n</orientation>')
+    mw = BeamMw(up, saved)
+    mw.selections[u"Mine"] = [1]
+    check("saved model: a card of the user on a beam counts",
+          smw.foreign_orientation(mw, [1, 2]) == 1)
+    write_model(u'<orientation selection="SECTION_V_P">\n</orientation>\n'
+                u'<orientation selection="">\n</orientation>')
+    mw = BeamMw(up, saved)
+    mw.selections[u"SECTION_V_P"] = [1, 2]
+    check("saved model: an own card and an empty one do not count",
+          smw.foreign_orientation(mw, [1, 2]) == 0)
+    plan = smw.beam_plan(mw, res_b, beam_plane, "B", True)
+    check("saved model without other orientations: card, no note",
+          plan["card"] == [1, 2] and plan["notes"] == [] and
+          mw.selections[u"SECTION_V_P"] == [])
+    write_model(u'<solution>\n<elem eid="1" orientationvx="1" />\n</solution>')
+    check("saved model: the copy inside <solution> is not read",
+          smw.foreign_orientation(BeamMw(up, saved), [1, 2]) == 0)
+finally:
+    shutil.rmtree(work, ignore_errors=True)
+
+# --- every direction: the outline on the beam is the original face ----------
+def closure(normal, phi_deg, against):
+    """Largest distance between the original corners of a face with this
+    normal and the outline placed on a beam the way Mecway places it: V from
+    the card projected on the plane normal to U, W = U x V."""
+    n = smw._norm(normal)
+    u, v = smw.plane_axes(n)
+    pln = {"normal": n, "u": u, "v": v, "offset": 0.3}
+    flat = [(0.21, 0.13), (0.27, 0.13), (0.27, 0.136), (0.216, 0.136),
+            (0.216, 0.17), (0.21, 0.17)]
+    data = dict(res_b, phi_deg=phi_deg, centroid=[0.23, 0.14],
+                loops=[[list(p) for p in flat]])
+    use = smw.for_beam(data, against)
+    beam_v = smw.principal_axis(data, pln)
+    beam_u = smw._mul(n, -1.0 if against else 1.0)
+    beam_w = smw._cross(beam_u, beam_v)
+    worst = abs(smw._dot(beam_v, beam_u))
+
+    def place(x, y):
+        return smw._add(smw._add(smw._mul(u, x), smw._mul(v, y)),
+                        smw._mul(n, 0.3))
+    origin = place(0.23, 0.14)
+    for (x, y), (bv, bw) in zip(flat, smw.principal_loops(use)[0]):
+        at = smw._add(smw._add(origin, smw._mul(beam_v, bv)),
+                      smw._mul(beam_w, bw))
+        worst = max(worst, smw._dist(at, place(x, y)))
+    return worst
+
+
+def spread():
+    axes = [(1, 0, 0), (0, 1, 0), (0, 0, 1), (1, 1, 0), (1, 0, 1), (0, 1, 1),
+            (1, -1, 0), (1, 1, 1), (1, -2, 3), (0.001, 1, 0), (1e-5, 1, 1e-5),
+            (0, 0.9995, 0.03)]
+    out = axes + [tuple(-c for c in a) for a in axes]
+    # a fixed spiral over the sphere
+    for k in range(200):
+        z = -1.0 + (2.0 * k + 1.0) / 200.0
+        r = math.sqrt(1.0 - z * z)
+        a = k * 2.399963
+        out.append((r * math.cos(a), r * math.sin(a), z))
+    return out
+
+
+worst_all = 0.0
+for normal in spread():
+    for phi_deg in (0.0, 30.0, 45.0, 90.0, -30.0, -89.0):
+        for against in (False, True):
+            worst_all = max(worst_all, closure(normal, phi_deg, against))
+check("every direction, both senses: outline on the original face "
+      "(worst {0:.2e} m)".format(worst_all), worst_all < 1e-12)
+
+turned = {1: ((0, 0, 0), (0.1, -0.2, 0.3))}
+n_t = smw._norm((1, -2, 3))
+u_t, v_t = smw.plane_axes(n_t)
+pln_t = {"normal": n_t, "u": u_t, "v": v_t, "offset": 0.0}
+plan = smw.beam_plan(BeamMw(turned), res_b, pln_t, "B", True)
+check("beam in a general direction: card, along n", plan["card"] == [1] and
+      not plan["mirrored"] and smw._dist(plan["u"], n_t) < 1e-12)
+turned = {1: ((0.1, -0.2, 0.3), (0, 0, 0))}
+plan = smw.beam_plan(BeamMw(turned), res_b, pln_t, "B", True)
+check("beam in a general direction, reversed: mirrored",
+      plan["mirrored"] and smw._dist(plan["u"], smw._mul(n_t, -1.0)) < 1e-12)
+
 if check.failed:
     print("FOUT: test_section_mecway")
     sys.exit(1)
