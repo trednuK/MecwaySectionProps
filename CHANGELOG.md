@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## V2026.2 (2026-11-06)
 
 - **V axis of the beam**: *Create general section* now sets the Element orientation of
   the beams it assigns the section to (box on by default). Without it the beam is turned
