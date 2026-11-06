@@ -38,8 +38,8 @@ en de berekening draait in Python met numpy en scipy.
    Is er helemaal geen Python, installeer die dan eerst van
    [python.org](https://www.python.org). Om de extra Code-Aster-eigenschappen (§5) te
    gebruiken: [MecwayAsterBridge](https://github.com/trednuK/MecwayAsterBridge).
-2. Download deze repository (op GitHub *Code* > *Download ZIP*, uitpakken) of clone hem,
-   bijv. naar `Documents\GitHub\MecwaySectionProps`.
+2. Download de [laatste release](https://github.com/trednuK/MecwaySectionProps/releases/latest) (*Source code (zip)*,
+   uitpakken) of clone deze repository, bijv. naar `Documents\GitHub\MecwaySectionProps`.
 3. Voeg het script toe aan Mecway: *Tools* > *Scripts...* > *New*, en kies
    `Scripts\MecwaySectionProps.py`. Het script staat daarna als item in het menu *Tools*.
 

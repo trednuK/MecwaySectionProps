@@ -38,8 +38,8 @@ analysis runs in Python with numpy and scipy.
    Without any Python, first install it from [python.org](https://www.python.org). To
    use the extra Code-Aster properties (§5):
    [MecwayAsterBridge](https://github.com/trednuK/MecwayAsterBridge).
-2. Download this repository (on GitHub *Code* > *Download ZIP*, unzip) or clone it, e.g.
-   to `Documents\GitHub\MecwaySectionProps`.
+2. Download the [latest release](https://github.com/trednuK/MecwaySectionProps/releases/latest) (*Source code (zip)*, unzip)
+   or clone this repository, e.g. to `Documents\GitHub\MecwaySectionProps`.
 3. Add the script to Mecway: *Tools* > *Scripts...* > *New*, and choose
    `Scripts\MecwaySectionProps.py`. The script then appears as an item in the *Tools*
    menu.

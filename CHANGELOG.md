@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## V2026.1 (2026-11-06)
 
 - **Shape of the section in the model**: with the extra Code-Aster properties, *Create
   general section* also stores the simplified outline as `** SECTIE-VORM` lines, for

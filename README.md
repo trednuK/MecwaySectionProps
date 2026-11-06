@@ -31,11 +31,13 @@ sectionproperties uses) runs in Python with numpy and scipy.
   not included. The Python of a Code-Aster installation is found automatically; so is
   another Python with these packages. If numpy or scipy is missing, the window says so
   and offers to run `python -m pip install numpy scipy`.
+- Optional: MecwayAsterBridge V2026.7 or newer, to use the extra Code-Aster properties
+  and to show the shape of the section on the beams.
 
 ## Installation
 
-1. Download this repository (*Code* > *Download ZIP*, unzip) or clone it, e.g. to
-   `Documents\GitHub\MecwaySectionProps`.
+1. Download the [latest release](https://github.com/trednuK/MecwaySectionProps/releases/latest) (*Source code (zip)*,
+   unzip) or clone this repository, e.g. to `Documents\GitHub\MecwaySectionProps`.
 2. In Mecway: *Tools* > *Scripts...* > *New*, and choose `Scripts\MecwaySectionProps.py`.
    It then appears in the *Tools* menu.
 
