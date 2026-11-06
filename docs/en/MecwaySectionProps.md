@@ -207,8 +207,8 @@ axis 2):
 | `EY`, `EZ` | vector from the shear centre C to the centroid G in y and z (CG, as `MACR_CARA_POUTRE`; checked with Code-Aster 17.4) | every beam (`POU_D_E`, `POU_D_T`, `POU_D_T_GD`): coupling of bending and torsion (EDF R&D, 2019 §5.1) |
 | `RY`, `RZ` | largest distance from the centroid in y and z | every beam; stresses only (EDF R&D, 2021a §9.3) |
 | `RT` | torsion radius: J · τmax / Mt | every beam; stresses only |
-| `JG` | warping constant | stored; only `POU_D_TG`/`POU_D_TGM` use it, which MecwayAsterBridge does not offer |
-| `IYR2`, `IZR2` | ∫ z(y² + z²) dA and ∫ y(y² + z²) dA about the centroid (equal to `MACR_CARA_POUTRE`) | stored; only for the geometric stiffness of `POU_D_TG`/`POU_D_TGM` (EDF R&D, 2020) |
+| `JG` | warping constant | used by `POU_D_TG` beams in MecwayAsterBridge; other beams ignore it |
+| `IYR2`, `IZR2` | ∫ z(y² + z²) dA and ∫ y(y² + z²) dA about the centroid (equal to `MACR_CARA_POUTRE`) | used by `POU_D_TG` beams in MecwayAsterBridge, for the geometric stiffness (EDF R&D, 2020) |
 
 - Each *Create general section* adds a *custom model definition* with one line. MecwayAsterBridge
   reads all of them, in order; when a material has several lines, the last one
@@ -238,7 +238,7 @@ per loop, 120 in all), so a *Create general section* adds a handful of lines. Th
 above apply: the last lines of a material count, and old definitions may be deleted. The
 MecwayAsterBridge compares `A` with the material and does not use an outline that no longer
 belongs to it. Mecway and CCX ignore these lines. Showing the section is done by
-MecwayAsterBridge (buttons *Show section* and *Section in results*), not by this tool.
+MecwayAsterBridge from V2026.7 (buttons *Show section* and *Section in results*), not by this tool.
 
 ## 6. Accuracy and verification
 

@@ -209,8 +209,8 @@ Alle waarden in SI (m, m², m⁴, m⁶), lokaal y = V (hoofdas 1), z = W (hoofda
 | `EY`, `EZ` | vector van het dwarskrachtcentrum C naar het zwaartepunt G in y en z (CG, zoals `MACR_CARA_POUTRE`; nagelopen met Code-Aster 17.4) | elke balk (`POU_D_E`, `POU_D_T`, `POU_D_T_GD`): koppeling van buiging en torsie (EDF R&D, 2019 §5.1) |
 | `RY`, `RZ` | grootste afstand tot het zwaartepunt in y en z | elke balk; alleen voor spanningen (EDF R&D, 2021a §9.3) |
 | `RT` | torsiestraal: J · τmax / Mt | elke balk; alleen voor spanningen |
-| `JG` | welvingsconstante | bewaard; alleen `POU_D_TG`/`POU_D_TGM` gebruiken hem, die MecwayAsterBridge niet aanbiedt |
-| `IYR2`, `IZR2` | ∫ z(y² + z²) dA en ∫ y(y² + z²) dA om het zwaartepunt (gelijk aan `MACR_CARA_POUTRE`) | bewaard; alleen voor de geometrische stijfheid van `POU_D_TG`/`POU_D_TGM` (EDF R&D, 2020) |
+| `JG` | welvingsconstante | gebruikt door balken `POU_D_TG` in MecwayAsterBridge; andere balken negeren hem |
+| `IYR2`, `IZR2` | ∫ z(y² + z²) dA en ∫ y(y² + z²) dA om het zwaartepunt (gelijk aan `MACR_CARA_POUTRE`) | gebruikt door balken `POU_D_TG` in MecwayAsterBridge, voor de geometrische stijfheid (EDF R&D, 2020) |
 
 - Elke keer *General section maken* voegt een *custom model definition* toe met één
   regel. MecwayAsterBridge leest ze allemaal, in volgorde; heeft een materiaal meer regels, dan
@@ -240,7 +240,7 @@ in totaal), dus een *General section maken* voegt een handvol regels toe. De reg
 hierboven gelden ook hier: de laatste regels van een materiaal tellen, en oude definities
 mag je verwijderen. MecwayAsterBridge vergelijkt `A` met het materiaal en gebruikt een omtrek
 die er niet meer bij hoort niet. Mecway en CCX negeren deze regels. Het tonen van de doorsnede
-doet MecwayAsterBridge (knoppen *Doorsnede tonen* en *Doorsnede in resultaten*), niet dit
+doet MecwayAsterBridge vanaf V2026.7 (knoppen *Doorsnede tonen* en *Doorsnede in resultaten*), niet dit
 hulpmiddel.
 
 ## 6. Nauwkeurigheid en verificatie
