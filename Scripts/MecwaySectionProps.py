@@ -18,14 +18,16 @@
 #                       with numpy and scipy
 #   section_gui       : the non-modal window (table, plot, buttons)
 #   section_mecway    : selection -> plane and boundary, CAD (STEP) request,
-#                       Mecway material, #ASTER-SECTIE line in the .liml
+#                       Mecway material, #ASTER-SECTIE and SECTIE-VORM lines
+#                       in the .liml
 #   section_analysis  : the analysis itself (Python 3 with numpy/scipy,
 #                       a prerequisite; started as a process):
 #                       section_mesh (triangle mesh), section_fem
 #                       (properties), section_step (exact STEP boundary)
 # MecwayAsterBridge (github.com/trednuK/MecwayAsterBridge) reads the
 # #ASTER-SECTIE line and passes the extra characteristics to
-# AFFE_CARA_ELEM.
+# AFFE_CARA_ELEM; it reads the SECTIE-VORM lines to show the section on the
+# beams.
 #
 # Compatible with IronPython 2.7.9.
 

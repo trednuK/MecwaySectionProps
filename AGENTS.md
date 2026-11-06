@@ -36,7 +36,14 @@ The line `** ASTER-SECTIE <material>: A=.., IY=.., IZ=.., JX=.., AY=.., AZ=.., E
 EZ=.., RY=.., RZ=.., RT=.., JG=.., IYR2=.., IZR2=..` (SI, local y = principal axis 1 =
 Mecway V, z = axis 2 = W; EY/EZ = vector shear centre -> centroid, as `MACR_CARA_POUTRE`)
 is read by MecwayAsterBridge (`bridge_custom.py`, `bridge_from_liml._section_extras`).
-A change of the format needs the same change there.
+The lines `** SECTIE-VORM <material>: N=<points per loop, spaces>, A=<area>` followed by
+`** SECTIE-VORM <material>: P=v w v w ...` hold the simplified outline (principal V, W
+about the centroid, SI, loops closed implicitly, even-odd interior; P lines concatenate;
+a new N for a material replaces what was read; split on the last colon). They are read by
+MecwayAsterBridge, which draws the section on the beams (`bridge_custom.py`,
+`bridge_section_view.py`) and compares A with the material. Never start them with
+`** ASTER-SECTIE `: the bridge reports such a line as an error. A change of either format
+needs the same change there.
 
 ## Checking
 

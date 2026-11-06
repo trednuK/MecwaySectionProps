@@ -5,7 +5,7 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 # Offline test of Scripts/section_mecway.py (Python 2.7 and 3): plane and
 # boundary of selected faces, quadratic faces, holes, repairs and the
-# #ASTER-SECTIE line (the format MecwayAsterBridge reads).
+# #ASTER-SECTIE and SECTIE-VORM lines (the formats MecwayAsterBridge reads).
 #
 #   python tests/test_section_mecway.py
 
@@ -542,6 +542,89 @@ check("line grammar: material and KEY=float pairs",
       m is not None and m.group(1) == u"Plat 3x6" and
       set(smw.ASTER_KEYS) == set(pairs) and pairs["AY"] == 1.2 and
       pairs["IY"] == 1.35e-09 and pairs["A"] == 1.8e-05)
+
+# --- the SECTIE-VORM lines ---------------------------------------------------
+def read_shape(lines, material):
+    """The reader of the contract in AGENTS.md (bridge_section_view there)."""
+    head = u"** SECTIE-VORM {0}: ".format(material)
+    counts, area, numbers = None, None, []
+    for text in lines:
+        if not text.startswith(head):
+            raise ValueError(text)
+        body = text[len(head):]
+        if body.startswith(u"N="):
+            left, right = body[2:].split(u", A=")
+            counts = [int(n) for n in left.split()]
+            area, numbers = float(right), []
+        else:
+            numbers += [float(n) for n in body[2:].split()]
+    pts = list(zip(numbers[0::2], numbers[1::2]))
+    if len(pts) != sum(counts):
+        raise ValueError("count")
+    loops, at = [], 0
+    for n in counts:
+        loops.append(pts[at:at + n])
+        at += n
+    return loops, area
+
+
+lines = smw.shape_lines(u"Plat 3x6", res)
+loops, shape_area = read_shape(lines, u"Plat 3x6")
+check("outline: one loop of 4 points and the area",
+      [len(lp) for lp in loops] == [4] and shape_area == 1.8e-05)
+check("outline: not an ASTER-SECTIE line (the bridge would report it)",
+      not any(t.startswith(smw.LINE_PREFIX) for t in lines))
+check("outline: area of the rectangle", abs(abs(area(loops[0])) - 1.8e-05)
+      < 1e-12)
+
+# rotated and shifted L: V, W are principal, about the centroid; one point
+# on the far corner, and the handedness (x, y) -> (V, W) is kept
+phi = 30.0
+c30, s30 = math.cos(math.radians(phi)), math.sin(math.radians(phi))
+
+
+def placed(v, w):
+    return [0.5 + v * c30 - w * s30, 0.25 + v * s30 + w * c30]
+
+
+ell = [(0.0, 0.0), (0.06, 0.0), (0.06, 0.006), (0.006, 0.006), (0.006, 0.04),
+       (0.0, 0.04)]
+res_l = dict(res, centroid=[0.5, 0.25], phi_deg=phi,
+             loops=[[placed(v, w) for v, w in ell]])
+got = read_shape(smw.shape_lines(u"L", res_l), u"L")[0][0]
+check("outline: rotation and centroid removed, same order",
+      len(got) == 6 and all(abs(a[0] - b[0]) < 1e-4 and abs(a[1] - b[1]) < 1e-4
+                            for a, b in zip(got, ell)))
+check("outline: sign of the area kept (no mirror image)",
+      area(got) * area(ell) > 0.0)
+
+# a tube of 2 x 720 points: limits, line length, the hole stays a hole
+circle = [[math.cos(math.radians(a * 0.5)), math.sin(math.radians(a * 0.5))]
+          for a in range(720)]
+ring = [[[0.05 * x, 0.05 * y] for x, y in circle],
+        [[0.04 * x, 0.04 * y] for x, y in circle[::-1]]]
+res_t = dict(res, loops=ring, centroid=[0.0, 0.0], phi_deg=0.0)
+lines = smw.shape_lines(u"Buis", res_t)
+loops, _ = read_shape(lines, u"Buis")
+check("outline: limits per loop and in total",
+      len(loops) == 2 and all(3 <= len(lp) <= smw.SHAPE_POINTS for lp in loops)
+      and sum(len(lp) for lp in loops) <= smw.SHAPE_TOTAL)
+check("outline: lines fit", max(len(t) for t in lines) <= smw.SHAPE_LINE)
+exact = math.pi * (0.05 ** 2 - 0.04 ** 2)
+check("outline: area of the tube within 3%",
+      abs(abs(area(loops[0])) - abs(area(loops[1])) - exact) < 0.03 * exact)
+
+# a hole far below the tolerance goes; nothing but one point for no loops
+speck = [[1e-6 * x, 1e-6 * y] for x, y in circle[::120]]
+res_s = dict(res, loops=res["loops"] + [speck])
+check("outline: a speck of a hole is left out",
+      len(smw.shape_loops(res_s)) == 1)
+check("outline: no loops, no lines", smw.shape_lines(u"X", dict(res, loops=[]))
+      == [])
+text = smw.aster_line_liml(u"\n".join([line] + lines))
+check("import .liml: ASTER line and outline in one definition",
+      text.count(u"<ccxmodeldefinition>") == 1 and u"\n** SECTIE-VORM Buis: N="
+      in text)
 
 if check.failed:
     print("FOUT: test_section_mecway")

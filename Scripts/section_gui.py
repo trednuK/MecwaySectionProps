@@ -21,6 +21,7 @@
 # section_analysis.py in Python (numpy, scipy) and shows the table and the
 # plot. "Create general section" makes a Mecway material from the result
 # and, if ticked, stores the extra Code-Aster data as an #ASTER-SECTIE line
+# and the outline as SECTIE-VORM lines
 # (section_mecway.store_aster_line: imported as an extra custom model
 # definition; the model is not saved or reopened).
 #
@@ -105,10 +106,10 @@ T = {
     "gs_none": (u"(geen component)", u"(no component)"),
     "gs_copy": (u"E, ν, ρ overnemen van het huidige materiaal",
                 u"Copy E, ν, ρ from the current material"),
-    "gs_store": (u"Extra Code-Aster-eigenschappen opslaan (#ASTER-SECTIE in "
-                 u"een custom model definition)",
-                 u"Store extra Code-Aster properties (#ASTER-SECTIE in a "
-                 u"custom model definition)"),
+    "gs_store": (u"Extra Code-Aster-eigenschappen en de vorm opslaan "
+                 u"(#ASTER-SECTIE in een custom model definition)",
+                 u"Store extra Code-Aster properties and the shape "
+                 u"(#ASTER-SECTIE in a custom model definition)"),
     "gs_make": (u"General section maken", u"Create general section"),
     "gs_need": (u"Bereken eerst een doorsnede.",
                 u"Calculate a section first."),

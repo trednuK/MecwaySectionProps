@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **Shape of the section in the model**: with the extra Code-Aster properties, *Create
+  general section* also stores the simplified outline as `** SECTIE-VORM` lines, for
+  MecwayAsterBridge to draw the section on the beams.
 - **STEP without a mesh**: Mecway's API cannot read a surface selected in the Geometry
   view, saved or not. A model without elements now shows the planar faces of the STEP
   file as temporary tri3 faces (no mesh: 2 s against 37 s and 192 000 elements on a small

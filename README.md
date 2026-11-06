@@ -14,7 +14,9 @@ automatically and reported.
 Izz, torsion constant, perimeter, stress recovery point). The characteristics Mecway has
 no field for (shear coefficients, shear centre eccentricity, warping constant, ...) are
 stored in the model as an `#ASTER-SECTIE` line, which
-[MecwayAsterBridge](https://github.com/trednuK/MecwayAsterBridge) passes to Code-Aster.
+[MecwayAsterBridge](https://github.com/trednuK/MecwayAsterBridge) passes to Code-Aster. The
+outline goes along as `SECTIE-VORM` lines, so that the bridge can show the real shape on the
+beams.
 
 ![The window](docs/images/window_en.png)
 

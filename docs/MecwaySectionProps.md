@@ -162,8 +162,8 @@ Onderaan het venster:
 - **E, ν, ρ overnemen**: neemt het isotrope elastische materiaal (E, ν, α) en de
   dichtheid over van het huidige materiaal van die component, zodat alleen de doorsnede
   verandert.
-- **Extra Code-Aster-eigenschappen opslaan**: zet de `#ASTER-SECTIE`-regel in het model
-  (§5), als een extra *custom model definition* onder *CCX* in de boom (de tool importeert
+- **Extra Code-Aster-eigenschappen en de vorm opslaan**: zet de `#ASTER-SECTIE`-regel en de
+  omtrek in het model (§5), als een extra *custom model definition* onder *CCX* in de boom (de tool importeert
   daarvoor een klein `.liml`-bestand; er is geen Mecway-API voor dat tekstveld). Het model
   wordt niet opgeslagen of heropend; sla het zelf op (MecwayAsterBridge doet dat ook bij
   elke run). Klik eenmaal in de boom als het nieuwe materiaal (onder *Unused
@@ -222,6 +222,26 @@ Alle waarden in SI (m, m², m⁴, m⁶), lokaal y = V (hoofdas 1), z = W (hoofda
 - Mecway zelf gebruikt alleen de *General section* en houdt geen rekening met het
   dwarskrachtcentrum (Mecway-handleiding §7.5, Mecway Ltd., 2026); de resultaten van
   Code-Aster wijken bij een asymmetrische doorsnede dus bewust af van Mecway.
+
+### De vorm van de doorsnede
+
+Mecway tekent geen vorm bij een general section. Daarom gaat de omtrek mee in dezelfde
+custom model definition, voor MecwayAsterBridge, die hem op de balken kan tekenen:
+
+```
+** SECTIE-VORM Profiel: N=6, A=0.0018
+** SECTIE-VORM Profiel: P=-0.024 -0.014 0.036 -0.014 0.036 -0.008 -0.018 -0.008 -0.018 0.026 -0.024 0.026
+```
+
+`N` geeft het aantal punten per lus (spatie tussen de lussen), `A` de oppervlakte en de
+`P`-regels de punten `V W`, achter elkaar: meters, hoofdassen om het zwaartepunt. De omtrek
+is vereenvoudigd tot 0,2% van de grootte van de doorsnede (hooguit 40 punten per lus, 120
+in totaal), dus een *General section maken* voegt een handvol regels toe. De regels
+hierboven gelden ook hier: de laatste regels van een materiaal tellen, en oude definities
+mag je verwijderen. MecwayAsterBridge vergelijkt `A` met het materiaal en gebruikt een omtrek
+die er niet meer bij hoort niet. Mecway en CCX negeren deze regels. Het tonen van de doorsnede
+doet MecwayAsterBridge (knoppen *Doorsnede tonen* en *Doorsnede in resultaten*), niet dit
+hulpmiddel.
 
 ## 6. Nauwkeurigheid en verificatie
 

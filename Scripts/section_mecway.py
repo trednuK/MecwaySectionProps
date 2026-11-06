@@ -15,8 +15,11 @@
 #   start_analysis(job)           section_analysis.py in a Python with numpy
 #                                 and scipy (section_utils.find_python)
 #   create_general_section(...)   Mecway material with a general section
-#   store_aster_line(...)         #ASTER-SECTIE line as an extra custom
-#                                 model definition (import of a small .liml)
+#   shape_lines(material, res)    the simplified outline as ** SECTIE-VORM
+#                                 lines
+#   store_aster_line(...)         #ASTER-SECTIE and SECTIE-VORM lines as an
+#                                 extra custom model definition (import of a
+#                                 small .liml)
 #
 # Coordinates: Mecway's API and the .liml use metres; everything here is SI.
 # The 2D frame of the section is as AreaPropsForAlibre: the face seen from
@@ -66,6 +69,15 @@ LINE_PREFIX = u"** ASTER-SECTIE "
 # A, IY, IZ, JX against the material).
 ASTER_KEYS = ("A", "IY", "IZ", "JX", "AY", "AZ", "EY", "EZ", "RY", "RZ",
               "RT", "JG", "IYR2", "IZR2")
+# Outline of the section for MecwayAsterBridge, which draws it on the beams
+# (Mecway has no shape for a general section). Lines of their own: a line
+# starting with LINE_PREFIX that the bridge cannot read is an error there.
+SHAPE_PREFIX = u"** SECTIE-VORM "
+SHAPE_LINE = 120        # characters per line, unless the material name is long
+SHAPE_TOL = 0.002       # simplification, relative to the size of the section
+# Every creation adds these lines to the model; the API cannot remove them.
+SHAPE_POINTS = 40       # at most per loop
+SHAPE_TOTAL = 120       # at most over all loops
 
 
 # ==========================================
@@ -1039,20 +1051,26 @@ def read_results(proc, dst):
 # ==========================================
 # GENERAL SECTION IN MECWAY
 # ==========================================
+def principal_loops(res):
+    """The loops of the results in principal coordinates about the centroid:
+    [[(v, w), ...], ...]."""
+    cx, cy = res["centroid"]
+    phi = math.radians(res["phi_deg"])
+    c, s = math.cos(phi), math.sin(phi)
+    return [[((x - cx) * c + (y - cy) * s, -(x - cx) * s + (y - cy) * c)
+             for x, y in loop] for loop in res.get("loops", [])]
+
+
 def recovery_point(res):
     """Mecway's stress recovery point (principal coordinates V, W): the
     boundary point farthest from the centroid (largest bending stress for
     a general direction of the moment)."""
-    cx, cy = res["centroid"]
-    phi = math.radians(res["phi_deg"])
-    c, s = math.cos(phi), math.sin(phi)
     best, point = -1.0, (0.0, 0.0)
-    for loop in res.get("loops", []):
-        for x, y in loop:
-            dx, dy = x - cx, y - cy
-            r = dx * dx + dy * dy
+    for loop in principal_loops(res):
+        for v, w in loop:
+            r = v * v + w * w
             if r > best:
-                best, point = r, (dx * c + dy * s, -dx * s + dy * c)
+                best, point = r, (v, w)
     return point
 
 
@@ -1122,21 +1140,100 @@ def aster_line(material, res):
     return LINE_PREFIX + u"{0}: {1}".format(material, u", ".join(parts))
 
 
+def _keep(pts, tol):
+    """Douglas-Peucker on the open chain pts: the points to keep."""
+    keep = set([0, len(pts) - 1])
+    stack = [(0, len(pts) - 1)]
+    while stack:
+        lo, hi = stack.pop()
+        worst, index = tol, None
+        for i in range(lo + 1, hi):
+            d = _project_on_polyline(pts[i], [pts[lo], pts[hi]])[0]
+            if d > worst:
+                worst, index = d, i
+        if index is not None:
+            keep.add(index)
+            stack.append((lo, index))
+            stack.append((index, hi))
+    return [pts[i] for i in sorted(keep)]
+
+
+def simplify_loop(loop, tol):
+    """The closed loop with the points that matter within tol. A loop with
+    no area at this size comes back with fewer than 3 points."""
+    loop = [tuple(p) for p in loop]
+    if len(loop) <= 3:
+        return loop
+    far = max(range(1, len(loop)),
+              key=lambda i: math.hypot(loop[i][0] - loop[0][0],
+                                       loop[i][1] - loop[0][1]))
+    return (_keep(loop[:far + 1], tol)[:-1] +
+            _keep(loop[far:] + loop[:1], tol)[:-1])
+
+
+def shape_loops(res):
+    """The loops in (V, W), simplified: SHAPE_TOL of the size of the section,
+    coarser when that leaves more than SHAPE_POINTS or SHAPE_TOTAL points."""
+    loops = principal_loops(res)
+    points = [p for lp in loops for p in lp]
+    if not points:
+        return []
+    tol = SHAPE_TOL * max(
+        max(p[0] for p in points) - min(p[0] for p in points),
+        max(p[1] for p in points) - min(p[1] for p in points))
+    while True:
+        out = [lp for lp in [simplify_loop(lp, tol) for lp in loops]
+               if len(lp) >= 3]
+        if (sum(len(lp) for lp in out) <= SHAPE_TOTAL and
+                all(len(lp) <= SHAPE_POINTS for lp in out)):
+            return out
+        tol *= 1.5
+
+
+def shape_lines(material, res):
+    """
+    The ** SECTIE-VORM lines of the section (contract in AGENTS.md):
+      ** SECTIE-VORM <material>: N=<points per loop>, A=<area>
+      ** SECTIE-VORM <material>: P=v w v w ...
+    V, W as in shape_loops, SI. The loops are closed implicitly, the interior
+    is even-odd as in the analysis. A lets the reader see that the outline
+    still belongs to the material.
+    """
+    loops = shape_loops(res)
+    if not loops:
+        return []
+    head = SHAPE_PREFIX + u"{0}: ".format(material)
+    lines = [head + u"N={0}, A={1}".format(
+        u" ".join("%d" % len(lp) for lp in loops), "%.10g" % res["area"])]
+    room = SHAPE_LINE - len(head) - 2
+    row = u""
+    for loop in loops:
+        for v, w in loop:
+            pair = u"%.5g %.5g" % (v, w)
+            if row and len(row) + 1 + len(pair) > room:
+                lines.append(head + u"P=" + row)
+                row = u""
+            row = row + u" " + pair if row else pair
+    lines.append(head + u"P=" + row)
+    return lines
+
+
 def _xml_escape(text):
     return (text.replace("&", "&amp;").replace("<", "&lt;")
             .replace(">", "&gt;"))
 
 
-def aster_line_liml(line, version="34"):
-    """A .liml with only a custom model definition holding `line`."""
+def aster_line_liml(text, version="34"):
+    """A .liml with only a custom model definition holding `text`."""
     return u'<liml version="{0}">\n  <{1}>{2}</{1}>\n</liml>\n'.format(
-        version, CUSTOM_TAG, _xml_escape(line))
+        version, CUSTOM_TAG, _xml_escape(text))
 
 
 def store_aster_line(mw, material, res):
     """
-    Put the #ASTER-SECTIE line of `material` in the model: a .liml with only
-    a custom model definition is imported into the open model. Mecway then
+    Put the #ASTER-SECTIE line of `material` and the SECTIE-VORM lines of
+    its outline in the model: a .liml with only a custom model definition
+    is imported into the open model. Mecway then
     keeps it as an extra custom model definition (CCX branch of the tree);
     MecwayAsterBridge reads every one in file order, so a newer line of the
     same material wins (its bridge_from_liml._section_extras). Tested in
@@ -1152,10 +1249,11 @@ def store_aster_line(mw, material, res):
     except Exception:
         pass
     with io.open(path, "w", encoding="utf-8") as f:
-        f.write(aster_line_liml(line, version))
+        f.write(aster_line_liml(
+            u"\n".join([line] + shape_lines(material, res)), version))
     mw.import_file(path, "m")
-    log("INFO: MecwaySectionProps: '{0}' imported as a custom model "
-        "definition.".format(line))
+    log("INFO: MecwaySectionProps: '{0}' and the outline imported as a "
+        "custom model definition.".format(line))
     return line
 
 

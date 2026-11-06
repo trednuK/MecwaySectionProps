@@ -159,8 +159,8 @@ At the bottom of the window:
 - **Assign to**: a beam component (line2/line3) that gets the material, or none.
 - **Copy E, ν, ρ**: copies the isotropic elastic data (E, ν, α) and the density from the
   component's current material, so that only the section changes.
-- **Store extra Code-Aster properties**: puts the `#ASTER-SECTIE` line in the model
-  (§5), as an extra *custom model definition* under *CCX* in the tree (the tool imports a
+- **Store extra Code-Aster properties and the shape**: puts the `#ASTER-SECTIE` line and the
+  outline in the model (§5), as an extra *custom model definition* under *CCX* in the tree (the tool imports a
   small `.liml` file for it; there is no Mecway API for that text field). The model is not
   saved or reopened; save it yourself (MecwayAsterBridge also does at every run). Click once
   in the tree if the new material (under *Unused Materials*) or the *custom model
@@ -220,6 +220,25 @@ axis 2):
 - Mecway itself only uses the *General section* and ignores the shear centre (Mecway
   manual §7.5, Mecway Ltd., 2026); for an unsymmetric section the Code-Aster results
   therefore deliberately differ from Mecway's.
+
+### The shape of the section
+
+Mecway draws no shape for a general section. So the outline goes into the same custom
+model definition, for MecwayAsterBridge, which can draw it on the beams:
+
+```
+** SECTIE-VORM Profile: N=6, A=0.0018
+** SECTIE-VORM Profile: P=-0.024 -0.014 0.036 -0.014 0.036 -0.008 -0.018 -0.008 -0.018 0.026 -0.024 0.026
+```
+
+`N` gives the number of points per loop (a space between loops), `A` the area, and the
+`P` lines the points `V W`, one after the other: metres, principal axes about the
+centroid. The outline is simplified to 0.2% of the size of the section (at most 40 points
+per loop, 120 in all), so a *Create general section* adds a handful of lines. The rules
+above apply: the last lines of a material count, and old definitions may be deleted. The
+MecwayAsterBridge compares `A` with the material and does not use an outline that no longer
+belongs to it. Mecway and CCX ignore these lines. Showing the section is done by
+MecwayAsterBridge (buttons *Show section* and *Section in results*), not by this tool.
 
 ## 6. Accuracy and verification
 
