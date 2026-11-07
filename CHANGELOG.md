@@ -1,5 +1,12 @@
 # Changelog
 
+## V2026.3 (2026-11-07)
+
+- **Shear stress fields**: `section_fem.shear_fields` gives the shear stress over the section
+  for a unit torque and unit shear forces, and `warping_properties` also returns the shear
+  functions. No change for users; MecwayAdvancedBeamAnalysis uses this to show the stress
+  on every point of a section.
+
 ## V2026.2 (2026-11-06)
 
 - **V axis of the beam**: *Create general section* now sets the Element orientation of

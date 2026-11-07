@@ -234,7 +234,8 @@ def run_analysis(data):
     else:
         try:
             wp = section_fem.warping_properties(nodes, elements, geo, nu=nu, boundary=boundary)
-            wp.pop("_omega", None)
+            for key in ("_omega", "_psi", "_phi"):
+                wp.pop(key, None)
             wp.pop("delta_s", None)
             res.update(wp)
             res["warping_computed"] = True

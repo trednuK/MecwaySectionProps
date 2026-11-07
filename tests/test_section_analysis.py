@@ -370,6 +370,52 @@ for key, sign in (("EY", 1.0), ("EZ", -1.0), ("IYR2", -1.0), ("IZR2", 1.0),
     check("mirror in W: {0} is {1}".format(key, "odd" if sign < 0 else "even"),
           abs(b - sign * a) < 1e-2 * abs(a), (a, b))
 
+# --- shear stress fields for unit section forces ------------------------------
+import section_fem as _fem  # noqa: E402
+import section_mesh as _mesh  # noqa: E402
+
+
+def _fields(loops, nu=0.0, n_target=3000):
+    m = _mesh.mesh_section(loops, n_target=n_target)
+    nodes, elements = m["nodes"], m["elements"]
+    geo = _fem.geometric_properties(nodes, elements)
+    wp = _fem.warping_properties(nodes, elements, geo, nu=nu)
+    return nodes, elements, geo, wp, _fem.shear_fields(nodes, elements, geo, wp, nu=nu)
+
+
+def _resultant(nodes, elements, geo, tau):
+    """(Fx, Fy, Mz about the centroid) of element-node values (E,6,2)."""
+    w, Ns, _, x, y = _fem._element_data(nodes, elements, geo["centroid"])
+    tx = np.einsum("gi,ei->eg", Ns, tau[:, :, 0])
+    ty = np.einsum("gi,ei->eg", Ns, tau[:, :, 1])
+    return (float(np.sum(w * tx)), float(np.sum(w * ty)),
+            float(np.sum(w * (x * ty - y * tx))))
+
+
+rect = [[[0.0, 0.0], [0.1, 0.0], [0.1, 0.2], [0.0, 0.2]]]
+n_, e_, g_, w_, f_ = _fields(rect)
+fx, fy, mz = _resultant(n_, e_, g_, f_["torsion"])
+check("shear_fields rectangle: unit torque has moment 1, no force",
+      abs(mz - 1.0) < 1e-9 and abs(fx) < 1e-9 and abs(fy) < 1e-9, (fx, fy, mz))
+fx, fy, mz = _resultant(n_, e_, g_, f_["vy"])
+check("shear_fields rectangle: unit vy resultant, through the centroid",
+      abs(fy - 1.0) < 1e-9 and abs(fx) < 1e-9 and abs(mz) < 1e-8, (fx, fy, mz))
+top = np.abs(f_["vy"][:, :, 1]).max() / (1.5 / g_["area"])
+check("shear_fields rectangle: peak 1.5 V / A with nu = 0",
+      abs(top - 1.0) < 1e-3, top)
+fx, fy, mz = _resultant(n_, e_, g_, f_["vx"])
+check("shear_fields rectangle: unit vx resultant",
+      abs(fx - 1.0) < 1e-9 and abs(fy) < 1e-9, (fx, fy, mz))
+
+channel = [[[0.0, 0.0], [0.08, 0.0], [0.08, 0.01], [0.008, 0.01],
+            [0.008, 0.19], [0.08, 0.19], [0.08, 0.2], [0.0, 0.2]]]
+n_, e_, g_, w_, f_ = _fields(channel, nu=0.3)
+fx, fy, mz = _resultant(n_, e_, g_, f_["vy"])
+arm = w_["shear_centre"][0] - g_["centroid"][0]
+check("shear_fields channel: vy acts through the shear centre",
+      abs(mz - arm * fy) < 1e-6 * abs(arm) and abs(fy - 1.0) < 1e-9 and abs(fx) < 1e-9,
+      (fx, fy, mz, arm))
+
 print("total {0:.1f} s".format(time.time() - t0))
 
 sys.exit(1 if check.failed else 0)

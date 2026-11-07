@@ -357,8 +357,50 @@ def warping_properties(nodes, elements, geo, nu=0.0, boundary=None):
         "shear_centre_trefftz": [x_st + cx, y_st + cy],
         "a_sx": a_sx, "a_sy": a_sy, "a_s11": a_s11, "a_s22": a_s22,
         "delta_s": delta_s, "rt": rt,
-        "_omega": omega,
+        "_omega": omega, "_psi": psi, "_phi": phi,
     }
+
+
+def shear_fields(nodes, elements, geo, wp, nu=0.0):
+    """Shear stress over the section for unit section forces.
+
+    geo, wp: results of geometric_properties and warping_properties, of the
+    same nodes, elements and nu. Returns {"torsion", "vx", "vy"}, each an
+    array (E,6,2) with (tau_zx, tau_zy) at the six nodes of every element, not
+    averaged: the stress is discontinuous between elements. Unit torque about
+    +z (= x cross y), unit force along +x, unit force along +y. Lines of action
+    of the forces: through the shear centre, so a resultant of vx or vy has a
+    moment about the centroid. Divides by J and delta_s, so a section of
+    several separate parts has no fields here, as for warping_properties."""
+    cx, cy = geo["centroid"]
+    ixx, iyy, ixy = geo["ixx_c"], geo["iyy_c"], geo["ixy_c"]
+    X = nodes[elements[:, :3]] - np.array([cx, cy])
+    x, y = X[:, :, 0], X[:, :, 1]
+    A2 = ((x[:, 1] - x[:, 0]) * (y[:, 2] - y[:, 0]) -
+          (x[:, 2] - x[:, 0]) * (y[:, 1] - y[:, 0]))
+    b = np.stack([y[:, 1] - y[:, 2], y[:, 2] - y[:, 0], y[:, 0] - y[:, 1]], axis=1) / A2[:, None]
+    c = np.stack([x[:, 2] - x[:, 1], x[:, 0] - x[:, 2], x[:, 1] - x[:, 0]], axis=1) / A2[:, None]
+    zeta = (np.eye(3)[0], np.eye(3)[1], np.eye(3)[2],
+            np.array([.5, .5, 0.]), np.array([0., .5, .5]), np.array([.5, 0., .5]))
+    om, ps, ph = wp["_omega"][elements], wp["_psi"][elements], wp["_phi"][elements]
+    E = len(elements)
+    tor, vx, vy = np.zeros((E, 6, 2)), np.zeros((E, 6, 2)), np.zeros((E, 6, 2))
+    for k, z in enumerate(zeta):
+        _, dN = _shape(z)
+        gx = b @ dN.T                       # (E,6): dN_i/dx at this node
+        gy = c @ dN.T
+        xk, yk = x @ z, y @ z
+        r = xk ** 2 - yk ** 2
+        q = 2 * xk * yk
+        d1, d2 = ixx * r - ixy * q, ixy * r + ixx * q
+        h1, h2 = -ixy * r + iyy * q, -iyy * r - ixy * q
+        tor[:, k, 0] = (np.sum(gx * om, axis=1) - yk) / wp["j"]
+        tor[:, k, 1] = (np.sum(gy * om, axis=1) + xk) / wp["j"]
+        vx[:, k, 0] = (np.sum(gx * ps, axis=1) - nu / 2 * d1) / wp["delta_s"]
+        vx[:, k, 1] = (np.sum(gy * ps, axis=1) - nu / 2 * d2) / wp["delta_s"]
+        vy[:, k, 0] = (np.sum(gx * ph, axis=1) - nu / 2 * h1) / wp["delta_s"]
+        vy[:, k, 1] = (np.sum(gy * ph, axis=1) - nu / 2 * h2) / wp["delta_s"]
+    return {"torsion": tor, "vx": vx, "vy": vy}
 
 
 def _torsion_radius(nodes, elements, omega, centroid, boundary):
