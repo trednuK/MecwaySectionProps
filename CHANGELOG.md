@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Sections far from the origin**: the section is meshed about the centre of its bounding box,
+  so a face 100 m or more from the model origin no longer stops with a Qhull error; the results
+  are the same as at the origin.
+- **V axis of a section that is symmetric in one axis only**: Mecway's default V opposite to the
+  needed V is no longer treated as right unless the section is point-symmetric (opposite V turns
+  the section 180 degrees). A T section on a beam now gets its V-axis card, and EZ and IYR2 keep
+  their sign.
 - **Manual in the window**: a second tab *Handleiding/Manual* shows the manual in the chosen
   language, with its images; links to chapters scroll, the link to the other language
   switches it, web links open in your own browser. The window images in the manual are
