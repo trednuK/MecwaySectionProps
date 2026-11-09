@@ -6,7 +6,7 @@
   language, with its images; links to chapters scroll, the link to the other language
   switches it, web links open in your own browser. The window images in the manual are
   numbered, with a table under each that explains every part. Checked offscreen in Mecway's
-  IronPython, not yet in the Mecway window.
+  IronPython, and by the user in the Mecway window (tab, images, language switch).
 
 ## V2026.3 (2026-11-07)
 
