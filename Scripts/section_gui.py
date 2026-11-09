@@ -27,12 +27,23 @@
 #
 # Texts: every user text in Dutch and English; the NL/EN switch in the
 # header redraws the window. Compatible with IronPython 2.7.9.
+#
+# TABS. Under the header a native TabControl, made once with the form: the
+# first tab holds the calculation (input bar, table, plot, general section,
+# footer), the second the manual (section_docs) in a browser element, made and
+# loaded only when the user opens that tab, and again after a language change.
+# render() rebuilds the header and the first tab only, so the browser element,
+# the chosen tab and the place in the manual stay. Links in the manual never
+# navigate the browser element: anchors scroll, the other manual switches the
+# language, web addresses open in the user's own browser; a new window is
+# cancelled. The same handling as MecwayAdvancedBeamAnalysis (beam_gui).
 
 import math
 import threading
 import time
 import traceback
 
+import section_docs as sdoc
 import section_utils as su
 from section_utils import log
 import section_mecway as smw
@@ -44,6 +55,8 @@ ANALYSIS_TIMEOUT = 600
 
 T = {
     "title": (u"Doorsnede-eigenschappen", u"Section properties"),
+    "tab_calc": (u"Berekening", u"Calculation"),
+    "tab_doc": (u"Handleiding", u"Manual"),
     "sub_none": (u"Selecteer in Mecway de vlakken van een vlakke doorsnede "
                  u"en klik op Berekenen.",
                  u"Select the faces of a flat cross-section in Mecway and "
@@ -657,6 +670,7 @@ def _colors():
 WIDTH = 1180
 TABLE_W = 600
 HEADER_H = 64
+TAB_STRIP_H = 28        # the tab row; the window grows by it
 BAR_H = 46
 GS_H = 126
 FOOTER_H = 52
@@ -700,9 +714,36 @@ class _Window(object):
         form.ShowInTaskbar = True
         form.StartPosition = F.FormStartPosition.CenterScreen
         form.Font = D.Font("Segoe UI", 9.0)
-        form.ClientSize = D.Size(WIDTH, 820)
-        form.MinimumSize = D.Size(900, 600)
+        form.ClientSize = D.Size(WIDTH, 820 + TAB_STRIP_H)
+        form.MinimumSize = D.Size(900, 600 + TAB_STRIP_H)
         self.form = form
+        # Made once: render() rebuilds what is inside, never these (a browser
+        # element disposed while it loads breaks the manual).
+        host = F.Panel()
+        host.Dock = F.DockStyle.Top
+        host.Height = HEADER_H
+        tabs = F.TabControl()
+        tabs.Dock = F.DockStyle.Fill
+        tabs.Font = D.Font("Segoe UI", 9.0)
+        tabs.Padding = D.Point(12, 4)
+        calc = F.TabPage()
+        manual = F.TabPage()
+        for page in (calc, manual):
+            page.BackColor = _colors()["bg"]
+            page.UseVisualStyleBackColor = False
+            page.Padding = F.Padding(0)
+            tabs.TabPages.Add(page)
+        form.Controls.Add(tabs)         # Fill first, the docked top last
+        form.Controls.Add(host)
+        self.head_host, self.tabs = host, tabs
+        self.page_calc, self.page_doc = calc, manual
+        self.doc_viewer = None          # WebBrowser, or a TextBox without one
+        self.doc_lang = None            # the language of the manual loaded
+        self.doc_loading = False        # DocumentText set, page not there yet
+        self.doc_loads = 0              # how often the manual was loaded
+        self.doc_mode_logged = False
+        self.closed = False
+        tabs.SelectedIndexChanged += self._guard(self._on_tab)
         self.timer = F.Timer()
         self.timer.Interval = 250
         self.timer.Tick += self._on_tick
@@ -785,10 +826,17 @@ class _Window(object):
         D, F = self.D, self.F
         col = _colors()
         form = self.form
+        host, page = self.head_host, self.page_calc
         form.SuspendLayout()
-        for c in list(form.Controls):
-            c.Dispose()
-        form.Controls.Clear()
+        for parent in (host, page):
+            parent.SuspendLayout()
+            for c in list(parent.Controls):
+                c.Dispose()
+            parent.Controls.Clear()
+        page.Text = self.t("tab_calc")
+        self.page_doc.Text = self.t("tab_doc")
+        # Panels get the full width before their children (anchored to the
+        # right edge); docking then narrows them to the tab page.
         W = form.ClientSize.Width
 
         header = F.Panel()
@@ -809,6 +857,8 @@ class _Window(object):
         langs.BackColor = col["header"]
         # Two small buttons (a native radio button ignores the white text
         # colour on the dark header); the active language is highlighted.
+        self.lang_buttons = {}
+        self.subtitle_label = header.Controls[header.Controls.Count - 1]
         for code in LANGS:
             b = click_safe("Button")()
             b.Text = code.upper()
@@ -823,6 +873,7 @@ class _Window(object):
             b.Tag = code
             b.Click += self._on_lang
             langs.Controls.Add(b)
+            self.lang_buttons[code] = b
         header.Controls.Add(langs)
 
         bar = F.Panel()
@@ -831,6 +882,7 @@ class _Window(object):
         bar.Size = D.Size(W, BAR_H)
         self._label(bar, self.t("input"), PAD, 12, 60, 22, 9, True)
         x = PAD + 62
+        self.mode_radios = {}
         for code, key, w in (("mesh", "mode_mesh", 190),
                              ("cad", "mode_cad", 230)):
             rb = self._native(F.RadioButton())
@@ -842,6 +894,7 @@ class _Window(object):
             rb.BackColor = col["band"]
             rb.CheckedChanged += self._on_mode
             bar.Controls.Add(rb)
+            self.mode_radios[code] = rb
             x += w
         self.calc_button = self._button(bar, self.t("calc"), x + 10, 8, 120,
                                         self.on_calculate, True)
@@ -855,6 +908,7 @@ class _Window(object):
         cb.Size = D.Size(60, 24)
         cb.SelectedIndexChanged += self._on_unit
         bar.Controls.Add(cb)
+        self.unit_box = cb
         self._label(bar, self.t("accuracy"), x + 292, 12, 110, 22)
         acc = F.ComboBox()
         acc.DropDownStyle = F.ComboBoxStyle.DropDownList
@@ -867,6 +921,7 @@ class _Window(object):
         acc.Size = D.Size(190, 24)
         acc.SelectedIndexChanged += self._on_accuracy
         bar.Controls.Add(acc)
+        self.accuracy_box = acc
 
         footer = F.Panel()
         footer.BackColor = col["band"]
@@ -882,12 +937,15 @@ class _Window(object):
         b = self._button(footer, self.t("close"), W - PAD - 110, 11, 110,
                          self.form.Close)
         b.Anchor = F.AnchorStyles.Right | F.AnchorStyles.Top
+        self.close_button = b
         b = self._button(footer, self.t("copy"), W - PAD - 230, 11, 110,
                          self.on_copy)
         b.Anchor = F.AnchorStyles.Right | F.AnchorStyles.Top
+        self.copy_button = b
         b = self._button(footer, self.t("copy_img"), W - PAD - 400, 11, 160,
                          self.on_copy_image)
         b.Anchor = F.AnchorStyles.Right | F.AnchorStyles.Top
+        self.copy_image_button = b
         for c in list(footer.Controls):
             if c is not self.status_label:
                 c.BringToFront()
@@ -915,16 +973,23 @@ class _Window(object):
         self.plot.BackColor = col["bg"]
         body.Controls.Add(self.plot)
         self.body = body
+        # A TabControl resizes only the page shown: the table and the plot
+        # follow their own panel, also after a resize with the manual open.
+        body.Resize += lambda s, e: self._layout_body()
         # Dock order: Fill last
-        form.Controls.Add(body)
-        form.Controls.Add(gs)
-        form.Controls.Add(footer)
-        form.Controls.Add(bar)
-        form.Controls.Add(header)
+        page.Controls.Add(body)
+        page.Controls.Add(gs)
+        page.Controls.Add(footer)
+        page.Controls.Add(bar)
+        host.Controls.Add(header)
+        page.ResumeLayout()
+        host.ResumeLayout()
         form.ResumeLayout()
         self._fill_table()
         self._layout_body()
         self._update_buttons()
+        # the manual in the language just chosen, when its tab is open
+        self._on_tab()
 
     def _subtitle(self):
         if self.res is None:
@@ -948,6 +1013,7 @@ class _Window(object):
             self.name = s.Text
         tb.TextChanged += on_name
         gs.Controls.Add(tb)
+        self.name_box = tb
         self._label(gs, self.t("gs_comp"), PAD + 300, 34, 100, 22)
         cb = F.ComboBox()
         cb.DropDownStyle = F.ComboBoxStyle.DropDownList
@@ -965,6 +1031,7 @@ class _Window(object):
             self.component = names[i - 1] if i > 0 else None
         cb.SelectedIndexChanged += on_comp
         gs.Controls.Add(cb)
+        self.component_box = cb
         chk = self._native(F.CheckBox())
         chk.Text = self.t("gs_copy")
         chk.AutoSize = True
@@ -975,6 +1042,7 @@ class _Window(object):
             self.copy_mat = s.Checked
         chk.CheckedChanged += on_copy_mat
         gs.Controls.Add(chk)
+        self.copy_check = chk
         chk = self._native(F.CheckBox())
         chk.Text = self.t("gs_store")
         chk.AutoSize = True
@@ -985,6 +1053,7 @@ class _Window(object):
             self.store = s.Checked
         chk.CheckedChanged += on_store
         gs.Controls.Add(chk)
+        self.store_check = chk
         chk = self._native(F.CheckBox())
         chk.Text = self.t("gs_orient")
         chk.AutoSize = True
@@ -995,6 +1064,7 @@ class _Window(object):
             self.orient = s.Checked
         chk.CheckedChanged += on_orient
         gs.Controls.Add(chk)
+        self.orient_check = chk
         self.gs_button = self._button(gs, self.t("gs_make"),
                                       self.form.ClientSize.Width - PAD - 200,
                                       62, 200, self.on_create, True)
@@ -1114,9 +1184,14 @@ class _Window(object):
         self.form.Activate()
 
     def _on_lang(self, sender, e):
-        if sender.Tag == self.lang:
+        self._set_lang(sender.Tag)
+
+    def _set_lang(self, code):
+        """Switch the language (the buttons, or the link to the other manual):
+        remembered, the window redrawn after the current event."""
+        if code == self.lang or code not in LANGS:
             return
-        self.lang = sender.Tag
+        self.lang = code
         su.save_setting("language", self.lang)
         self.form.BeginInvoke(self.F.MethodInvoker(self.render))
 
@@ -1135,6 +1210,7 @@ class _Window(object):
         self.form.BeginInvoke(self.F.MethodInvoker(self.render))
 
     def _on_closing(self, sender, e):
+        self.closed = True
         if self.busy is not None:
             try:
                 self.busy[0].Kill()
@@ -1147,6 +1223,151 @@ class _Window(object):
         except Exception:
             log("ERROR: MecwaySectionProps: {0}".format(
                 traceback.format_exc()))
+
+    # ---------------- the manual ----------------
+    def _doc_shown(self):
+        return self.tabs.SelectedIndex == 1
+
+    def _on_tab(self):
+        """The user chose a tab: the manual is made and loaded on its first
+        showing, and again after a language change."""
+        if self._doc_shown() and self.doc_lang != self.lang:
+            self._load_doc()
+
+    def _make_viewer(self):
+        F = self.F
+        try:
+            viewer = F.WebBrowser()
+            viewer.ScriptErrorsSuppressed = True
+            viewer.AllowWebBrowserDrop = False
+            viewer.IsWebBrowserContextMenuEnabled = False
+            viewer.Navigating += self._on_doc_navigating
+            # shift or middle click, Ctrl+N: no window of its own, ever
+            viewer.NewWindow += self._on_doc_new_window
+            viewer.DocumentCompleted += self._on_doc_completed
+        except Exception:
+            # no browser element: the Markdown as plain text
+            log("ERROR: MecwaySectionProps: no browser element for the "
+                "manual: {0}".format(traceback.format_exc()))
+            viewer = F.TextBox()
+            viewer.Multiline = True
+            viewer.ReadOnly = True
+            viewer.ScrollBars = F.ScrollBars.Vertical
+            viewer.Font = self.D.Font("Segoe UI", 9.0)
+        viewer.Dock = F.DockStyle.Fill
+        self.page_doc.Controls.Add(viewer)
+        self.doc_viewer = viewer
+        return viewer
+
+    def _is_browser(self):
+        return (self.doc_viewer is not None and
+                not isinstance(self.doc_viewer, self.F.TextBox))
+
+    def _load_doc(self):
+        viewer = self.doc_viewer or self._make_viewer()
+        html, text = sdoc.doc_html(self.lang)
+        self.doc_lang = self.lang
+        self.doc_loads += 1
+        if self._is_browser():
+            self.doc_loading = True
+            viewer.DocumentText = html
+        else:
+            viewer.Text = text.replace(u"\r\n", u"\n").replace(u"\n",
+                                                                 u"\r\n")
+
+    def doc_ready(self):
+        """Is the manual on the page (not an empty one)?"""
+        try:
+            document = self.doc_viewer.Document
+            return document is not None and \
+                document.GetElementById(sdoc.MARKER_ID) is not None
+        except Exception:
+            return False
+
+    def _on_doc_completed(self, sender, e):
+        """Wait for the manual on the page, not for the event: DocumentText
+        may complete twice. A page without the manual that the window did not
+        ask for loads the manual again (a refresh, F5)."""
+        def work():
+            if self.closed:
+                return
+            if self.doc_ready():
+                self.doc_loading = False
+                self._log_doc_mode()
+            elif not self.doc_loading and self.doc_lang is not None:
+                # after this event: never set DocumentText inside the
+                # browser's own event
+                self.doc_loading = True
+                self._later(self._load_doc)
+        self._safe(work)
+
+    def _safe(self, fn, *args):
+        try:
+            fn(*args)
+        except Exception as e:
+            log("ERROR: MecwaySectionProps: {0}".format(
+                traceback.format_exc()))
+            self._set_status(u"{0}".format(e), True)
+
+    def _later(self, fn):
+        """fn on the window thread once the current event is over; not after
+        the window closed."""
+        def run():
+            if not self.closed and not self.form.IsDisposed:
+                self._safe(fn)
+        if not self.closed and not self.form.IsDisposed:
+            self.form.BeginInvoke(self.F.MethodInvoker(run))
+
+    def _log_doc_mode(self):
+        """Once: the document mode in this program (an SVG image needs 9 or
+        more)."""
+        if self.doc_mode_logged:
+            return
+        self.doc_mode_logged = True
+        try:
+            # through IDispatch: IronPython's own COM binding gives a method
+            from System.Reflection import BindingFlags
+            dom = self.doc_viewer.Document.DomDocument
+            mode = dom.GetType().InvokeMember(
+                "documentMode", BindingFlags.GetProperty, None, dom, None)
+            log(u"INFO: MecwaySectionProps: manual shown, document mode "
+                u"{0}".format(mode))
+        except Exception as e:
+            log(u"INFO: MecwaySectionProps: manual shown, document mode not "
+                u"read: {0}".format(e))
+
+    def _on_doc_navigating(self, sender, e):
+        """Only the page itself loads; a click is handled here
+        (section_docs.resolve_link)."""
+        url = u"{0}".format(e.Url)
+        if url in (u"about:blank", u""):
+            return
+        e.Cancel = True
+        self._safe(self._follow, url)
+
+    def _follow(self, url):
+        kind, target = sdoc.resolve_link(url)
+        if kind == "anchor":
+            self.doc_scroll_to(target)
+        elif kind == "lang":
+            # after this event: the language change loads a new page
+            self._later(lambda: self._set_lang(target))
+        elif kind == "web":
+            # http or https only (resolve_link): the user's own browser
+            from System.Diagnostics import Process
+            Process.Start(target)
+
+    def _on_doc_new_window(self, sender, e):
+        e.Cancel = True
+
+    def doc_scroll_to(self, anchor):
+        """Scroll the manual to the element with id anchor; False when
+        absent."""
+        element = self.doc_viewer.Document.GetElementById(anchor)
+        if element is None:
+            return False
+        element.ScrollIntoView(True)
+        return True
 
     def _drop_temp(self):
         """Remove the temporary faces, if any; forgotten only when that

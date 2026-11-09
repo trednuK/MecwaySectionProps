@@ -2,6 +2,13 @@
 
 *Nederlandse versie: [MecwaySectionProps.md](../MecwaySectionProps.md)*
 
+**Contents:** [1. Installation](#1-installation) · [2. Use](#2-use) ·
+[3. What the window shows](#3-what-the-window-shows) ·
+[4. Creating the general section](#4-creating-the-general-section) ·
+[5. Extra properties for Code-Aster](#5-extra-properties-for-code-aster-aster-sectie) ·
+[6. Accuracy and verification](#6-accuracy-and-verification) ·
+[7. Limitations](#7-limitations) · [8. References](#8-references)
+
 MecwaySectionProps computes the properties of a flat cross-section that you select in
 Mecway: area, centroid, second moments of area (also about the principal axes), section
 moduli (elastic and plastic), torsion constant J, warping constant Iw, shear centre and
@@ -132,7 +139,36 @@ own mesh is never touched.
 
 ## 3. What the window shows
 
-![The window with an angle 150 x 150 x 10](../images/window_en.png)
+The window has two tabs: *Calculation* (§3.1) and *Manual* (§3.2). The header with the
+language buttons stands above both.
+
+### 3.1 The Calculation tab
+
+![The Calculation tab with an angle 150 x 150 x 10, numbered](../images/window_en.png)
+
+| No. | Part | Explanation |
+|---|---|---|
+| 1 | Header | What was calculated (the number of faces or the CAD face) and the units. |
+| 2 | NL / EN | The language of the window and of the manual; remembered. |
+| 3 | Calculation | This tab. |
+| 4 | Manual | The manual in the window (§3.2). Changing tabs stops nothing. |
+| 5 | Input | *Mesh faces*: the faces you selected in Mecway. *CAD face*: the exact boundary from the STEP file (§2.1). |
+| 6 | Calculate | Reads the selection and starts the analysis in Python. |
+| 7 | Unit | mm or m, for the table, the drawing and *Copy*. |
+| 8 | Accuracy | How finely the section is divided; applies from the next calculation (§6). |
+| 9 | Table | All quantities by group (table below); scroll for the rest. |
+| 10 | Drawing | The section with centroid, x/y axes, principal axes 1 (V) and 2 (W), angle φ and shear centre. |
+| 11 | Legend | The values that go with the drawing. |
+| 12 | Material name | The name of the new Mecway material (§4). |
+| 13 | Assign to | The beam component that gets the material, or none. |
+| 14 | Copy E, ν, ρ | Copies the elastic data and the density of that component's current material (§4). |
+| 15 | Store extra Code-Aster properties and the shape | The `#ASTER-SECTIE` line, the outline and the direction in the model (§5). |
+| 16 | Set the V axis of the beam | Gives the beams the right *Element orientation* (§4). |
+| 17 | Create general section | Makes the material and assigns it (§4). |
+| 18 | Status line | Messages and errors of the last action. |
+| 19 | Copy image | The drawing to the clipboard, sharper than on screen. |
+| 20 | Copy | The table to the clipboard, pastes into Excel. |
+| 21 | Close | Closes the window; temporary faces of a STEP model are removed. |
 
 **Axes.** The section is seen from outside the solid (as in AreaPropsForAlibre): the
 normal n points out of the elements, y is the global Y axis projected onto the plane (or
@@ -151,6 +187,21 @@ centroid is in model coordinates; below it also globally (X; Y; Z).
 Torsion, warping and shear exist only for a connected section; when the selection
 consists of separate parts, the reason is shown under the table and no *General section*
 can be created from it.
+
+### 3.2 The manual in the window
+
+![The Manual tab, numbered](../images/window_manual_en.png)
+
+| No. | Part | Explanation |
+|---|---|---|
+| 1 | Calculation | Back to the calculation; the results stay. |
+| 2 | Manual | This text in the chosen language, with its images. It loads when you first open the tab. |
+| 3 | NL / EN | Switches the language, also of the manual. |
+| 4 | Contents | Links to the chapters. A reference such as §4 in the text is a link too. |
+
+A link to a website opens in your own browser; the link to the Dutch version switches the
+language of the window. The manual comes from `docs/` next to the `Scripts` folder; without
+a built-in browser the tab shows the plain text.
 
 ## 4. Creating the general section
 

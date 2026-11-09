@@ -20,6 +20,9 @@ beams.
 
 ![The window](docs/images/window_en.png)
 
+The numbers are explained in
+[§3.1 of the manual](docs/en/MecwaySectionProps.md#31-the-calculation-tab).
+
 It is the Mecway version of AreaPropsForAlibre: the analysis (a quadratic triangle mesh
 of the section and the finite element formulation of Pilkey, as the package
 sectionproperties uses) runs in Python with numpy and scipy.

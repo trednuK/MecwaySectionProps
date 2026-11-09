@@ -2,6 +2,13 @@
 
 *English version: [MecwaySectionProps.md](en/MecwaySectionProps.md)*
 
+**Inhoud:** [1. Installeren](#1-installeren) · [2. Gebruik](#2-gebruik) ·
+[3. Wat het venster toont](#3-wat-het-venster-toont) ·
+[4. General section maken](#4-general-section-maken) ·
+[5. Extra eigenschappen voor Code-Aster](#5-extra-eigenschappen-voor-code-aster-aster-sectie) ·
+[6. Nauwkeurigheid en verificatie](#6-nauwkeurigheid-en-verificatie) ·
+[7. Beperkingen](#7-beperkingen) · [8. Bronnen](#8-bronnen)
+
 MecwaySectionProps berekent de doorsnede-eigenschappen van een vlakke doorsnede die je in
 Mecway selecteert: oppervlakte, zwaartepunt, traagheidsmomenten (ook om de hoofdassen),
 weerstandsmomenten (elastisch en plastisch), torsieconstante J, welvingsconstante Iw,
@@ -134,7 +141,36 @@ vlakjes er staan. Een model met een eigen mesh wordt nooit aangeraakt.
 
 ## 3. Wat het venster toont
 
-![Het venster met een hoekstaal 150 x 150 x 10](images/window_nl.png)
+Het venster heeft twee tabbladen: *Berekening* (§3.1) en *Handleiding* (§3.2). De kop met
+de taalknoppen staat boven allebei.
+
+### 3.1 Het tabblad Berekening
+
+![Het tabblad Berekening met een hoekstaal 150 x 150 x 10, genummerd](images/window_nl.png)
+
+| Nr | Onderdeel | Uitleg |
+|---|---|---|
+| 1 | Kop | Wat er berekend is (het aantal vlakken of het CAD-vlak) en de eenheden. |
+| 2 | NL / EN | De taal van het venster en van de handleiding; wordt onthouden. |
+| 3 | Berekening | Dit tabblad. |
+| 4 | Handleiding | De handleiding in het venster (§3.2). Wisselen van tabblad stopt niets. |
+| 5 | Invoer | *Mesh-vlakken*: de vlakken die je in Mecway hebt geselecteerd. *CAD-vlak*: de exacte rand uit het STEP-bestand (§2.1). |
+| 6 | Berekenen | Leest de selectie en start de berekening in Python. |
+| 7 | Eenheid | mm of m, voor de tabel, de tekening en *Kopiëren*. |
+| 8 | Nauwkeurigheid | Hoe fijn de doorsnede wordt verdeeld; geldt vanaf de volgende berekening (§6). |
+| 9 | Tabel | Alle grootheden per groep (tabel hieronder); scroll voor de rest. |
+| 10 | Tekening | De doorsnede met zwaartepunt, x/y-assen, hoofdassen 1 (V) en 2 (W), hoek φ en dwarskrachtcentrum. |
+| 11 | Legenda | De waarden bij de tekening. |
+| 12 | Materiaalnaam | De naam van het nieuwe Mecway-materiaal (§4). |
+| 13 | Toewijzen aan | De balkcomponent die het materiaal krijgt, of geen. |
+| 14 | E, ν, ρ overnemen | Neemt de elastische gegevens en de dichtheid over van het huidige materiaal van die component (§4). |
+| 15 | Extra Code-Aster-eigenschappen en de vorm opslaan | De `#ASTER-SECTIE`-regel, de omtrek en de richting in het model (§5). |
+| 16 | V-as van de balk zetten | Geeft de balken de juiste *Element orientation* (§4). |
+| 17 | General section maken | Maakt het materiaal en wijst het toe (§4). |
+| 18 | Statusregel | Meldingen en fouten van de laatste actie. |
+| 19 | Afbeelding kopiëren | De tekening naar het klembord, scherper dan op het scherm. |
+| 20 | Kopiëren | De tabel naar het klembord, plakbaar in Excel. |
+| 21 | Sluiten | Sluit het venster; tijdelijke vlakjes van een STEP-model verdwijnen. |
 
 **Assen.** De doorsnede wordt bekeken van buiten het volume (zoals AreaPropsForAlibre):
 de normaal n wijst uit de elementen, y is de globale Y-as geprojecteerd op het vlak (of
@@ -153,6 +189,21 @@ zwaartepunt staat in modelcoördinaten; daaronder ook globaal (X; Y; Z).
 Torsie, welving en afschuiving bestaan alleen voor een samenhangende doorsnede; bestaat
 de selectie uit losse delen, dan staat de reden onder de tabel en kan er geen *General
 section* van worden gemaakt.
+
+### 3.2 De handleiding in het venster
+
+![Het tabblad Handleiding, genummerd](images/window_manual_nl.png)
+
+| Nr | Onderdeel | Uitleg |
+|---|---|---|
+| 1 | Berekening | Terug naar het rekenen; de resultaten blijven staan. |
+| 2 | Handleiding | Deze tekst in de gekozen taal, met de afbeeldingen. Hij laadt pas als je het tabblad opent. |
+| 3 | NL / EN | Wisselt de taal, ook van de handleiding. |
+| 4 | Inhoud | Links naar de hoofdstukken. Ook een verwijzing als §4 in de tekst is een link. |
+
+Een link naar een website opent in je eigen browser; de link naar de Engelse versie wisselt
+de taal van het venster. De handleiding komt uit `docs/` naast de map `Scripts`; zonder
+ingebouwde browser toont het tabblad de platte tekst.
 
 ## 4. General section maken
 
