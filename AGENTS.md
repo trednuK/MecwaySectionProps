@@ -8,7 +8,9 @@ and module overview: `Scripts/MecwaySectionProps.py`. User docs: `docs/` (Dutch)
 ## Runtime
 
 - Inside Mecway (IronPython 2.7.9): `MecwaySectionProps.py`, `section_gui.py`,
-  `section_mecway.py`, `section_utils.py`. Python 2.7 code: no f-strings, type hints or
+  `section_mecway.py`, `section_utils.py`, `section_docs.py` (the manual on the window's
+  second tab; a copy of `beam_docs.py` of MecwayAdvancedBeamAnalysis, change it there first:
+  `tests/test_section_docs.py` fails when the two drift apart). Python 2.7 code: no f-strings, type hints or
   `pathlib`; `"{0}".format(x)`; numbers in user text with `%`-formatting (IronPython's
   `"{0:.4g}"` follows the Windows locale). Standard library plus `clr`/Windows Forms.
 - `mw` exists only in the entry script; `section_gui` passes it on, `section_mecway` is the
@@ -60,11 +62,15 @@ instead. Two cards on one element make Mecway refuse to solve.
 python tests/test_section_mecway.py
 python tests/test_section_step.py
 python tests/test_section_analysis.py
+python tests/test_section_docs.py
 powershell -ExecutionPolicy Bypass -File tools/run_ipy.ps1 -Script tests/test_section_mecway.py
+powershell -ExecutionPolicy Bypass -File tools/run_ipy.ps1 -Script tests/test_section_gui.py
 ```
 
-`tools/gui_cap.py` makes the window images of `docs/images/` offscreen, without Mecway, from
-an own example (`tools/gui_cap_data.py`).
+`tools/gui_cap.py <repo> doc <folder>` (with `run_ipy.ps1`) makes the numbered window images of
+`docs/images/` offscreen, without Mecway and without taking the focus, from an own example
+(`tools/gui_cap_data.py`); the numbers sit on the live controls, so they follow the layout.
+The tables under the images in both manuals use the same numbers: renumber both together.
 
 A real run is only possible in Mecway (computer use on the open instance; never on the
 user's own model files). `WorkDir/` and `Scripts/section_settings.json` are local (not
