@@ -370,6 +370,50 @@ for key, sign in (("EY", 1.0), ("EZ", -1.0), ("IYR2", -1.0), ("IZR2", 1.0),
     check("mirror in W: {0} is {1}".format(key, "odd" if sign < 0 else "even"),
           abs(b - sign * a) < 1e-2 * abs(a), (a, b))
 
+# --- far from the origin: the same section ------------------------------------
+# Qhull's Delaunay failed (QH6229) from about 85 m in-plane distance for this
+# 200 mm channel: the mesh is made about the centre of the loops now.
+base = sa.run_analysis({"loops": SHAPES["channel"]})
+for off in ((100.0, 30.0), (1000.0, -300.0), (10000.0, 3000.0)):
+    name = "channel at ({0:g}, {1:g}) m".format(*off)
+    moved = [[[x + off[0], y + off[1]] for x, y in lp] for lp in SHAPES["channel"]]
+    try:
+        r = sa.run_analysis({"loops": moved})
+    except Exception as exc:
+        check(name + ": analysis runs", False, exc)
+        continue
+    check(name + ": A, Ixx, Iyy, Ixy (1e-9)",
+          all(rel(r[k], base[k]) < 1e-9 for k in ("area", "ixx_c", "iyy_c")) and
+          abs(r["ixy_c"] - base["ixy_c"]) < 1e-9 * base["ixx_c"],
+          [(r[k], base[k]) for k in ("area", "ixx_c", "iyy_c", "ixy_c")])
+    check(name + ": J, warping constant, shear areas (1e-6)",
+          all(rel(r[k], base[k]) < 1e-6 for k in ("j", "gamma", "a_s11", "a_s22")),
+          [(r[k], base[k]) for k in ("j", "gamma", "a_s11", "a_s22")])
+    check(name + ": centroid and shear centre (1e-9 m)",
+          np.allclose(np.array(r["centroid"]) - off, base["centroid"], rtol=0, atol=1e-9) and
+          np.allclose(np.array(r["shear_centre"]) - off, base["shear_centre"],
+                      rtol=0, atol=1e-9), (r["centroid"], r["shear_centre"]))
+    check(name + ": loops returned at their place",
+          len(r["loops"]) == len(base["loops"]) and
+          all(np.allclose(np.array(a) - off, b, rtol=0, atol=1e-9)
+              for a, b in zip(r["loops"], base["loops"])))
+    check(name + ": plastic properties", r["plastic_computed"] and
+          rel(r["sxx"], base["sxx"]) < 1e-9, (r.get("sxx"), base["sxx"]))
+
+# display triangles of a face 100 km away (the fan fallback had the wrong area)
+far = 1e5
+lp3 = [[x + far, y + 0.3 * far, 0.5] for x, y in SHAPES["channel"][0]]
+pts3, tris = sa.display_triangles({"normal": [0.0, 0.0, 1.0], "loops": [lp3],
+                                   "offset": 0.5})
+X = pts3[tris]
+d_area = 0.5 * float(np.sum(np.linalg.norm(np.cross(X[:, 1] - X[:, 0], X[:, 2] - X[:, 0]),
+                                           axis=1)))
+check("display triangles 100 km away: area of the face (1e-6)",
+      rel(d_area, base["area"]) < 1e-6, (d_area, base["area"]))
+check("display triangles 100 km away: on the face",
+      np.allclose(pts3[:, 2], 0.5, atol=1e-9) and
+      abs(pts3[:, 0].min() - far) < 1e-6 and abs(pts3[:, 1].min() - 0.3 * far) < 1e-6)
+
 # --- shear stress fields for unit section forces ------------------------------
 import section_fem as _fem  # noqa: E402
 import section_mesh as _mesh  # noqa: E402

@@ -77,6 +77,10 @@ def display_triangles(face, spacing_parts=10.0):
     loops = [np.asarray(lp, dtype=float)[:, :] for lp in face["loops"]]
     flat = [np.stack([lp.dot(u), lp.dot(v)], axis=1) for lp in loops]
     every = np.vstack(flat)
+    # about the centre of the face: Qhull fails far from the origin (as in
+    # section_mesh.mesh_section); shifted back below
+    mid = 0.5 * (every.min(axis=0) + every.max(axis=0))
+    flat = [lp - mid for lp in flat]
     size = float(np.hypot(*(every.max(axis=0) - every.min(axis=0))))
     step = size / spacing_parts
     pts = []
@@ -104,6 +108,7 @@ def display_triangles(face, spacing_parts=10.0):
         simp = simp[cross != 0.0]
         cross = cross[cross != 0.0]
         simp[cross < 0] = simp[cross < 0][:, [0, 2, 1]]
+    pts = pts + mid
     p3 = (pts[:, 0:1] * u[None, :] + pts[:, 1:2] * v[None, :] +
           float(face["offset"]) * n[None, :])
     return p3, simp
