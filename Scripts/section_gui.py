@@ -973,6 +973,9 @@ class _Window(object):
         self.plot.BackColor = col["bg"]
         body.Controls.Add(self.plot)
         self.body = body
+        # A TabControl resizes only the page shown: the table and the plot
+        # follow their own panel, also after a resize with the manual open.
+        body.Resize += lambda s, e: self._layout_body()
         # Dock order: Fill last
         page.Controls.Add(body)
         page.Controls.Add(gs)

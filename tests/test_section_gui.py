@@ -94,15 +94,30 @@ try:
 
     w.tabs.SelectedIndex = 0
     h.pump(lambda: True, 0.05)
+    loads = w.doc_loads
     w._set_lang("nl")
     h.pump(lambda: w.lang == "nl" and w.page_calc.Text == u"Berekening", 5.0)
-    loads = w.doc_loads
     check("a language change with the manual hidden loads nothing",
           w.doc_lang == "en" and w.doc_loads == loads)
     w.tabs.SelectedIndex = 1
     check("opening the tab again loads the manual in the new language",
           h.pump(lambda: w.doc_lang == "nl" and w.doc_ready() and
                  not w.doc_loading, 20.0))
+
+    # a resize while the manual is shown: the hidden first tab must follow
+    D = h.D
+    form = w.form
+    form.ClientSize = D.Size(form.ClientSize.Width + 160,
+                             form.ClientSize.Height + 120)
+    h.pump(lambda: False, 0.3)
+    w.tabs.SelectedIndex = 0
+    h.pump(lambda: False, 0.3)
+    body = w.body
+    check("a resize with the manual shown reaches the calculation tab",
+          w.table.Height == body.ClientSize.Height and
+          w.plot.Right == body.ClientSize.Width,
+          (w.table.Height, body.ClientSize.Height, w.plot.Right,
+           body.ClientSize.Width))
 finally:
     h.close()
 check("closed: no more work on the page", w.closed)
