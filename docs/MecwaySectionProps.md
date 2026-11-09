@@ -332,8 +332,8 @@ in totaal), dus een *General section maken* voegt een handvol regels toe. De reg
 hierboven gelden ook hier: de laatste regels van een materiaal tellen, en oude definities
 mag je verwijderen. MecwayAsterBridge vergelijkt `A` met het materiaal en gebruikt een omtrek
 die er niet meer bij hoort niet. Mecway en CCX negeren deze regels. Het tonen van de doorsnede
-doet MecwayAsterBridge vanaf V2026.7 (knoppen *Doorsnede tonen* en *Doorsnede in resultaten*), niet dit
-hulpmiddel.
+doet MecwayAsterBridge vanaf V2026.7 (knoppen *Doorsnede tonen* en *Doorsnede in resultaten*; vanaf
+V2026.9 in het menu *Doorsnede ▾*), niet dit hulpmiddel.
 
 ## 6. Nauwkeurigheid en verificatie
 

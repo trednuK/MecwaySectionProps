@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## V2026.4 (date open)
 
 - **V axis of a point-symmetric section without a card**: when the beams keep Mecway's default
   V, opposite to principal axis 1, the `SECTIE-RICHTING` line now gives that V, and the outline

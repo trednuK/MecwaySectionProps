@@ -36,7 +36,8 @@ sectionproperties uses) runs in Python with numpy and scipy.
   and offers to run `python -m pip install numpy scipy`.
 - Optional: MecwayAsterBridge V2026.7 or newer, to use the extra Code-Aster properties
   and to show the shape of the section on the beams; V2026.8 or newer also warns about a
-  beam that does not fit its section.
+  beam that does not fit its section, and V2026.9 or newer shows the stress over the
+  section in the results.
 
 ## Installation
 
