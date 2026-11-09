@@ -1352,12 +1352,16 @@ def for_beam(res, mirrored):
 
 
 def worst_turn(res, beams, v):
-    """Largest angle in degrees between Mecway's default V and v. V and -V
-    are the same for a section symmetric about W."""
+    """Largest angle in degrees between Mecway's default V and v. -V also
+    reverses W = U x V, so it turns the section 180 degrees about U: EY, EZ,
+    IYR2 and IZR2 all change sign. V and -V are only the same when all four
+    are zero (a point-symmetric section; the beam data are then the same,
+    although an outline that is not point-symmetric would be drawn turned)."""
+    turn_free = not (_odd(res, "EY", "IZR2") or _odd(res, "EZ", "IYR2"))
     worst = 0.0
     for _, u in beams:
         angle = _angle(default_v(u), v)
-        if not _odd(res, "EY", "IZR2"):
+        if turn_free:
             angle = min(angle, 180.0 - angle)
         worst = max(worst, angle)
     return worst

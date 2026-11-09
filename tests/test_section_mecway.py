@@ -766,6 +766,44 @@ try:
     check("default V is -axis 1 of an open section: a card",
           plan["card"] == [1, 2])
 
+    # T (flange 60x10, stem 10x150), symmetric about W only, on a beam
+    # along +Y: Mecway's default V is -X, axis 1 is +X. -V also reverses
+    # W = U x V, so the section would be turned 180 degrees (EY, EZ, IYR2
+    # and IZR2 all odd): a card, and the data as they are.
+    tee = dict(res_b, area=0.0021, i11_c=5.560357142857e-06,
+               i22_c=1.925e-07, j=6.979468739776e-08, phi_deg=0.0,
+               perimeter=0.44, centroid=[0.0, 0.09785714285714],
+               loops=[[[-0.005, 0.0], [0.005, 0.0], [0.005, 0.15],
+                       [0.03, 0.15], [0.03, 0.16], [-0.03, 0.16],
+                       [-0.03, 0.15], [-0.005, 0.15]]],
+               aster=dict(res_b["aster"], EY=0.0, EZ=-0.0513842027,
+                          IYR2=-8.795918367e-08, IZR2=0.0))
+    tee_plane = {"normal": (0.0, 1.0, 0.0), "u": (1.0, 0.0, 0.0),
+                 "v": (0.0, 0.0, -1.0)}
+    along_y = {1: ((0, 0, 0), (0, 0.5, 0)), 2: ((0, 0.5, 0), (0, 1.0, 0))}
+    beams_y = smw.beam_axes(BeamMw(along_y), "B")
+    check("T on a beam along +Y: default V is -axis 1, turned 180 degrees",
+          smw.principal_axis(tee, tee_plane) == (1.0, 0.0, 0.0) and
+          abs(smw.worst_turn(tee, beams_y, (1.0, 0.0, 0.0)) - 180.0) < 1e-9)
+    plan = smw.beam_plan(BeamMw(along_y), tee, tee_plane, "B", True)
+    check("T symmetric about W only, default V = -V: a card",
+          plan["card"] == [1, 2] and not plan["mirrored"])
+    mw = BeamMw(along_y)
+    mat, sel, notes = smw.assign_section(mw, u"T", tee, tee_plane, "B")
+    text = mw.imported[0]
+    line = [t for t in text.split(u"\n") if smw.LINE_PREFIX in t][0]
+    vals = dict(p.split(u"=") for p in line.split(u": ", 1)[1].split(u", "))
+    check("T: card with V = +X, data stored as they are",
+          sel and mw.selections[sel] == [1, 2] and
+          u"<vx>1</vx><vy>0</vy><vz>0</vz>" in text and
+          u"V=1 0 0, U=0 1 0" in text and
+          float(vals[u"EZ"]) == -0.0513842027 and
+          float(vals[u"IYR2"]) == -8.795918367e-08)
+    plan = smw.beam_plan(BeamMw(along_y), tee, tee_plane, "B", False)
+    check("T, box off: a note with the 180 degrees",
+          plan["card"] is None and
+          any(u"180.0" in n for n in plan["notes"]))
+
     mw = BeamMw(down)
     mat, sel, notes = smw.assign_section(mw, u"P", res_b, beam_plane, "B")
     text = mw.imported[0]

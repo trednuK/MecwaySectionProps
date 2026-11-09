@@ -191,7 +191,7 @@ assigning to a component:
 
 | Situation | What happens |
 |---|---|
-| Beams along the normal n | *Element orientation* with the V vector on an element selection `SECTION_V_<material>`. No card when Mecway's default V is already right |
+| Beams along the normal n | *Element orientation* with the V vector on an element selection `SECTION_V_<material>`. No card when Mecway's default V is already right, or exactly opposite for a point-symmetric section (rectangle, I, Z: `EY`, `EZ`, `IYR2` and `IZR2` zero). Opposite V also reverses W, so it turns the section 180°: for any other section, a T for example, the card is set |
 | Beams against n | The same, and the data are stored mirrored in W (`EZ`, `IYR2`, recovery point, outline) |
 | Both directions mixed | The majority counts; a note when the section is not symmetric about V, as the others see it mirrored |
 | Beams more than 1° off n | Nothing set, a note with the V vector |
@@ -244,9 +244,10 @@ axis 2):
 | `JG` | warping constant | used by `POU_D_TG` beams in MecwayAsterBridge; other beams ignore it |
 | `IYR2`, `IZR2` | ∫ z(y² + z²) dA and ∫ y(y² + z²) dA about the centroid (equal to `MACR_CARA_POUTRE`) | used by `POU_D_TG` beams in MecwayAsterBridge, for the geometric stiffness (EDF R&D, 2020) |
 
-- Each *Create general section* adds a *custom model definition* with one line. MecwayAsterBridge
-  reads all of them, in order; when a material has several lines, the last one
-  counts. You may delete old ones (right-click the item in the tree).
+- Each *Create general section* adds a *custom model definition* with the lines of that
+  section (`#ASTER-SECTIE`, `SECTIE-VORM`, `SECTIE-RICHTING`). MecwayAsterBridge reads all
+  of them, in order; when a material has several, the newest of each kind counts.
+  You may delete old ones (right-click the item in the tree).
 - If you rename the material in Mecway, change the name in the line too (otherwise:
   WARNING "no material with this name").
 - The log of a MecwayAsterBridge run shows what was taken over:

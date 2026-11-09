@@ -194,7 +194,7 @@ een component:
 
 | Situatie | Wat er gebeurt |
 |---|---|
-| Balken langs de normaal n | *Element orientation* met de V-vector op een elementselectie `SECTION_V_<materiaal>`. Geen kaart als Mecway's standaard-V al klopt |
+| Balken langs de normaal n | *Element orientation* met de V-vector op een elementselectie `SECTION_V_<materiaal>`. Geen kaart als Mecway's standaard-V al klopt, of precies tegengesteld is bij een puntsymmetrische doorsnede (rechthoek, I, Z: `EY`, `EZ`, `IYR2` en `IZR2` nul). Een tegengestelde V keert ook W om en draait de doorsnede dus 180°: bij elke andere doorsnede, bijvoorbeeld een T, komt de kaart er wel |
 | Balken tegen n in | Hetzelfde, en de gegevens worden in W gespiegeld opgeslagen (`EZ`, `IYR2`, recovery point, omtrek) |
 | Beide richtingen door elkaar | De meerderheid telt; een melding als de doorsnede niet symmetrisch is om V, want de rest ziet hem gespiegeld |
 | Balken meer dan 1° schuin op n | Niets gezet, een melding met de V-vector |
@@ -248,9 +248,10 @@ Alle waarden in SI (m, m², m⁴, m⁶), lokaal y = V (hoofdas 1), z = W (hoofda
 | `JG` | welvingsconstante | gebruikt door balken `POU_D_TG` in MecwayAsterBridge; andere balken negeren hem |
 | `IYR2`, `IZR2` | ∫ z(y² + z²) dA en ∫ y(y² + z²) dA om het zwaartepunt (gelijk aan `MACR_CARA_POUTRE`) | gebruikt door balken `POU_D_TG` in MecwayAsterBridge, voor de geometrische stijfheid (EDF R&D, 2020) |
 
-- Elke keer *General section maken* voegt een *custom model definition* toe met één
-  regel. MecwayAsterBridge leest ze allemaal, in volgorde; heeft een materiaal meer regels, dan
-  telt de laatste. Oude regels mag je verwijderen (rechtsklik op het item in de boom).
+- Elke keer *General section maken* voegt een *custom model definition* toe met de regels
+  van die doorsnede (`#ASTER-SECTIE`, `SECTIE-VORM`, `SECTIE-RICHTING`). MecwayAsterBridge
+  leest ze allemaal, in volgorde; heeft een materiaal er meer, dan telt van elke soort de
+  nieuwste. Oude regels mag je verwijderen (rechtsklik op het item in de boom).
 - Hernoem je het materiaal in Mecway, pas dan de naam in de regel aan (anders: WARNING
   "geen materiaal met deze naam").
 - De log van een run van MecwayAsterBridge toont wat er is overgenomen:
