@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **Display scale**: at a Windows display scale above 100 % the window grows with its text.
+  At 125 % the header ran into the tabs and the input choice into *Calculate*. The window
+  also stays within the screen.
 - **Sections far from the origin**: the section is meshed about the centre of its bounding box,
   so a face 100 m or more from the model origin no longer stops with a Qhull error; the results
   are the same as at the origin.

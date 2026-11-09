@@ -28,6 +28,13 @@
 # Texts: every user text in Dutch and English; the NL/EN switch in the
 # header redraws the window. Compatible with IronPython 2.7.9.
 #
+# SCALE. Fonts are in points and grow with the Windows display scale; every
+# pixel size here is for 100 % and is multiplied by self.k (screen DPI / 96):
+# the form size directly, the panels by Control.Scale after they are built at
+# their 100 % width. Windows Forms' own AutoScaleMode only scales what exists
+# when the form loads, and render() rebuilds after that: at 125 % the header
+# text ran into the tabs and the input choice into Calculate (user, Mecway).
+#
 # TABS. Under the header a native TabControl, made once with the form: the
 # first tab holds the calculation (input bar, table, plot, general section,
 # footer), the second the manual (section_docs) in a browser element, made and
@@ -593,6 +600,20 @@ def run_window(mw):
 # ==========================================
 # THE WINDOW
 # ==========================================
+def _screen_scale(D):
+    """Screen DPI / 96: 1.25 at a display scale of 125 % in a DPI-aware
+    program such as Mecway, 1.0 in a program Windows scales itself."""
+    try:
+        from System import IntPtr
+        g = D.Graphics.FromHwnd(IntPtr.Zero)
+        try:
+            return max(1.0, float(g.DpiX) / 96.0)
+        finally:
+            g.Dispose()
+    except Exception:
+        return 1.0
+
+
 def _forms():
     import clr
     clr.AddReference("System.Windows.Forms")
@@ -704,8 +725,8 @@ class _Window(object):
         D, F = _forms()
         self.D, self.F = D, F
         form = F.Form()
-        form.AutoScaleDimensions = D.SizeF(96.0, 96.0)
-        form.AutoScaleMode = F.AutoScaleMode.Dpi
+        form.AutoScaleMode = getattr(F.AutoScaleMode, "None")
+        self.k = _screen_scale(D)
         form.Text = PANEL_TITLE
         form.BackColor = _colors()["bg"]
         form.FormBorderStyle = F.FormBorderStyle.Sizable
@@ -714,14 +735,21 @@ class _Window(object):
         form.ShowInTaskbar = True
         form.StartPosition = F.FormStartPosition.CenterScreen
         form.Font = D.Font("Segoe UI", 9.0)
-        form.ClientSize = D.Size(WIDTH, 820 + TAB_STRIP_H)
-        form.MinimumSize = D.Size(900, 600 + TAB_STRIP_H)
+        # never larger than the screen's working area (125 % on a 1080p
+        # screen: the 100 % height would not fit)
+        area = F.Screen.PrimaryScreen.WorkingArea
+        form.ClientSize = D.Size(
+            min(self.px(WIDTH), area.Width - 40),
+            min(self.px(820 + TAB_STRIP_H), area.Height - 60))
+        form.MinimumSize = D.Size(
+            min(self.px(900), area.Width - 40),
+            min(self.px(600 + TAB_STRIP_H), area.Height - 60))
         self.form = form
         # Made once: render() rebuilds what is inside, never these (a browser
         # element disposed while it loads breaks the manual).
         host = F.Panel()
         host.Dock = F.DockStyle.Top
-        host.Height = HEADER_H
+        host.Height = self.px(HEADER_H)
         tabs = F.TabControl()
         tabs.Dock = F.DockStyle.Fill
         tabs.Font = D.Font("Segoe UI", 9.0)
@@ -755,6 +783,17 @@ class _Window(object):
     # ---------------- helpers ----------------
     def t(self, key):
         return tx(key, self.lang)
+
+    def px(self, value):
+        """A size for 100 % in pixels of this screen."""
+        return int(round(value * self.k))
+
+    def _scale(self, controls):
+        """Controls built at 100 % (with their children) to this screen."""
+        if self.k != 1.0:
+            size = self.D.SizeF(self.k, self.k)
+            for c in controls:
+                c.Scale(size)
 
     def _label(self, parent, text, x, y, w, h, size=9.0, bold=False,
                color=None, align=None, back=None):
@@ -836,8 +875,10 @@ class _Window(object):
         page.Text = self.t("tab_calc")
         self.page_doc.Text = self.t("tab_doc")
         # Panels get the full width before their children (anchored to the
-        # right edge); docking then narrows them to the tab page.
-        W = form.ClientSize.Width
+        # right edge); docking then narrows them to the tab page. Built at
+        # 100 % (W in 100 % pixels) and scaled once at the end.
+        W = int(form.ClientSize.Width / self.k)
+        self.raw_width = W
 
         header = F.Panel()
         header.BackColor = col["header"]
@@ -982,6 +1023,7 @@ class _Window(object):
         page.Controls.Add(footer)
         page.Controls.Add(bar)
         host.Controls.Add(header)
+        self._scale([header, bar, footer, gs, body])
         page.ResumeLayout()
         host.ResumeLayout()
         form.ResumeLayout()
@@ -1066,7 +1108,7 @@ class _Window(object):
         gs.Controls.Add(chk)
         self.orient_check = chk
         self.gs_button = self._button(gs, self.t("gs_make"),
-                                      self.form.ClientSize.Width - PAD - 200,
+                                      self.raw_width - PAD - 200,
                                       62, 200, self.on_create, True)
         self.gs_button.Anchor = self.F.AnchorStyles.Right | \
             self.F.AnchorStyles.Top
@@ -1077,7 +1119,7 @@ class _Window(object):
             return
         D = self.D
         w, h = body.ClientSize.Width, body.ClientSize.Height
-        tw = min(TABLE_W, max(420, w // 2))
+        tw = min(self.px(TABLE_W), max(self.px(420), w // 2))
         self.table.Location = D.Point(0, 0)
         self.table.Size = D.Size(tw, h)
         self.plot.Location = D.Point(tw, 0)
@@ -1142,6 +1184,7 @@ class _Window(object):
         spacer.Location = D.Point(0, y + 8)
         spacer.Size = D.Size(1, 1)
         panel.Controls.Add(spacer)
+        self._scale(list(panel.Controls))
 
     def _update_buttons(self):
         busy = self.busy is not None

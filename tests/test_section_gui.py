@@ -122,6 +122,40 @@ finally:
     h.close()
 check("closed: no more work on the page", w.closed)
 
+# The display scale (125 %): every size follows, nothing runs into its
+# neighbour. The fonts only grow in a DPI-aware program such as Mecway; this
+# checks the sizes and places, which do not depend on that.
+import section_gui as gui  # noqa: E402
+gui._screen_scale = lambda D: 1.25
+h = gui_cap.Harness(REPO, "en")
+w = h.window
+try:
+    header = w.head_host.Controls[0]
+    area = h.F.Screen.PrimaryScreen.WorkingArea
+    check("125 %: header 80 px, its texts inside it",
+          w.head_host.Height == 80 and header.Height == 80 and
+          w.subtitle_label.Bottom <= header.Height, (header.Height,
+                                                     w.subtitle_label.Bottom))
+    check("125 %: the tabs start under the header", w.tabs.Top >= 80)
+    check("125 %: input choice clear of Calculate",
+          w.mode_radios["cad"].Left >= w.mode_radios["mesh"].Right and
+          w.calc_button.Left - w.mode_radios["cad"].Left >= int(230 * 1.25) - 1,
+          (w.mode_radios["cad"].Left, w.calc_button.Left))
+    check("125 %: buttons inside their panel",
+          w.gs_button.Right <= w.gs_button.Parent.ClientSize.Width and
+          w.close_button.Right <= w.close_button.Parent.ClientSize.Width and
+          w.copy_image_button.Left > w.status_label.Left)
+    check("125 %: the window fits the screen",
+          w.form.Width <= area.Width and w.form.Height <= area.Height,
+          (w.form.Width, w.form.Height, area.Width, area.Height))
+    w._set_lang("nl")
+    h.pump(lambda: w.page_calc.Text == u"Berekening", 5.0)
+    check("125 %: a redraw keeps the scale",
+          w.head_host.Controls[0].Height == 80 and
+          w.calc_button.Height == int(round(30 * 1.25)))
+finally:
+    h.close()
+
 if failed:
     print("FOUT: test_section_gui ({0})".format(len(failed)))
     sys.exit(1)
