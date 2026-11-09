@@ -328,7 +328,8 @@ above apply: the last lines of a material count, and old definitions may be dele
 MecwayAsterBridge compares `A` with the material and does not use an outline that no longer
 belongs to it. Mecway and CCX ignore these lines. Showing the section is done by
 MecwayAsterBridge from V2026.7 (buttons *Show section* and *Section in results*; from V2026.9 in
-the menu *Section ▾*), not by this tool.
+the menu *Section ▾*, with the stress over the section in the results after a Code-Aster
+run), not by this tool.
 
 ## 6. Accuracy and verification
 
