@@ -36,7 +36,9 @@ and module overview: `Scripts/MecwaySectionProps.py`. User docs: `docs/` (Dutch)
 
 The line `** ASTER-SECTIE <material>: A=.., IY=.., IZ=.., JX=.., AY=.., AZ=.., EY=..,
 EZ=.., RY=.., RZ=.., RT=.., JG=.., IYR2=.., IZR2=..` (SI, local y = principal axis 1 =
-Mecway V, z = axis 2 = W; EY/EZ = vector shear centre -> centroid, as `MACR_CARA_POUTRE`)
+Mecway V, z = axis 2 = W; EY/EZ = vector shear centre -> centroid, as `MACR_CARA_POUTRE`;
+y = -axis 1 when a point-symmetric section keeps Mecway's default V without a card: all
+three kinds of lines are then written for that V, `for_beam(turned)`)
 is read by MecwayAsterBridge (`bridge_custom.py`, `bridge_from_liml._section_extras`).
 The lines `** SECTIE-VORM <material>: N=<points per loop, spaces>, A=<area>` followed by
 `** SECTIE-VORM <material>: P=v w v w ...` hold the simplified outline (principal V, W

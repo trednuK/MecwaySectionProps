@@ -87,6 +87,9 @@ DIRECTION_PREFIX = u"** SECTIE-RICHTING "
 # Values that change sign when a beam sees the section mirrored in W (a beam
 # running against the normal, see for_beam). The rest of the line is even in W.
 MIRROR_KEYS = ("EZ", "IYR2")
+# Values that change sign when the section is turned 180 degrees about U (V
+# and W reversed, see for_beam).
+TURN_KEYS = ("EY", "EZ", "IYR2", "IZR2")
 # Element selections of the Element orientation cards of this tool.
 ORIENT_PREFIX = "SECTION_V_"
 BEAM_TOL_DEG = 1.0      # a beam this close to the normal counts as along it
@@ -1070,9 +1073,10 @@ def principal_loops(res):
     cx, cy = res["centroid"]
     phi = math.radians(res["phi_deg"])
     c, s = math.cos(phi), math.sin(phi)
-    sign = -1.0 if res.get("mirror_w") else 1.0
-    return [[((x - cx) * c + (y - cy) * s,
-              sign * (-(x - cx) * s + (y - cy) * c))
+    sv = -1.0 if res.get("turn_v") else 1.0
+    sw = -sv if res.get("mirror_w") else sv
+    return [[(sv * ((x - cx) * c + (y - cy) * s),
+              sw * (-(x - cx) * s + (y - cy) * c))
              for x, y in loop] for loop in res.get("loops", [])]
 
 
@@ -1148,10 +1152,11 @@ def aster_line(material, res):
     # The checked values exactly as written into the Mecway material.
     aster["A"], aster["IY"] = res["area"], res["i11_c"]
     aster["IZ"], aster["JX"] = res["i22_c"], res["j"]
-    if res.get("mirror_w"):
-        for key in MIRROR_KEYS:
-            if aster.get(key) is not None:
-                aster[key] = -aster[key]
+    for flag, keys in (("mirror_w", MIRROR_KEYS), ("turn_v", TURN_KEYS)):
+        if res.get(flag):
+            for key in keys:
+                if aster.get(key) is not None:
+                    aster[key] = -aster[key]
     parts = []
     for key in ASTER_KEYS:
         if aster.get(key) is not None:
@@ -1344,27 +1349,54 @@ def _odd(res, shift, moment):
             abs(aster.get(moment) or 0.0) > 1e-4 * res["area"] ** 2.5)
 
 
-def for_beam(res, mirrored):
-    """The results as a beam against the normal sees them: V is the same, so
-    W = U x V is reversed. EZ, IYR2, the recovery point and the outline change
-    sign in W; the other values are even in W."""
-    return dict(res, mirror_w=True) if mirrored else res
+def for_beam(res, mirrored, turned=False):
+    """The results as the beam sees them. mirrored: a beam against the
+    normal; V is the same, so W = U x V is reversed: EZ, IYR2, the recovery
+    point and the outline change sign in W, the other values are even in W.
+    turned: the data written for -V (a turn_free section on Mecway's default
+    V, see beam_plan); V and W are reversed: EY, EZ, IYR2, IZR2, the recovery
+    point and the outline change sign in V and W. The results of the window
+    are not changed."""
+    flags = {}
+    if mirrored:
+        flags["mirror_w"] = True
+    if turned:
+        flags["turn_v"] = True
+    return dict(res, **flags) if flags else res
+
+
+def turn_free(res):
+    """True when V and -V give the same beam data. -V also reverses
+    W = U x V, so it turns the section 180 degrees about U: EY, EZ, IYR2 and
+    IZR2 all change sign, and they are the same only when all four are zero
+    (a point-symmetric section; an outline that is not point-symmetric is
+    then written turned with the data, see for_beam)."""
+    return not (_odd(res, "EY", "IZR2") or _odd(res, "EZ", "IYR2"))
 
 
 def worst_turn(res, beams, v):
-    """Largest angle in degrees between Mecway's default V and v. -V also
-    reverses W = U x V, so it turns the section 180 degrees about U: EY, EZ,
-    IYR2 and IZR2 all change sign. V and -V are only the same when all four
-    are zero (a point-symmetric section; the beam data are then the same,
-    although an outline that is not point-symmetric would be drawn turned)."""
-    turn_free = not (_odd(res, "EY", "IZR2") or _odd(res, "EZ", "IYR2"))
+    """Largest angle in degrees between Mecway's default V and v; for a
+    turn_free section the angle to v or -v, whichever is smaller."""
+    free = turn_free(res)
     worst = 0.0
     for _, u in beams:
         angle = _angle(default_v(u), v)
-        if turn_free:
+        if free:
             angle = min(angle, 180.0 - angle)
         worst = max(worst, angle)
     return worst
+
+
+def got_v(res, beams, v, tol):
+    """The V axis, v or -v, that Mecway's default gives every beam (within
+    tol degrees): the V the data must be written for when no card is set.
+    -v only for a turn_free section. None when the beams do not all get the
+    same one: beams in both senses (the default V reverses with U, except
+    along global Z), or close to global Z, where the default V jumps."""
+    for want in ([v, _mul(v, -1.0)] if turn_free(res) else [v]):
+        if all(_angle(default_v(u), want) <= tol for _, u in beams):
+            return want
+    return None
 
 
 _CARD_RE = re.compile(r'<orientation\b[^>]*\bselection="([^"]*)"')
@@ -1407,6 +1439,17 @@ def foreign_orientation(mw, eids):
     return len(found)
 
 
+def own_card(mw, eids):
+    """True when one of the elements eids is in the selection of a card of
+    this tool (an earlier assignment with the V axis set)."""
+    wanted = set(eids)
+    for name in mw.named_selections():
+        if name.startswith(ORIENT_PREFIX):
+            if any(int(e) in wanted for e in mw.named_selection(name)):
+                return True
+    return False
+
+
 def release_orientation(mw, eids):
     """Take the elements out of the selections of earlier cards of this tool:
     Mecway does not solve with two cards on one element. A selection is never
@@ -1429,14 +1472,17 @@ def selection_name(material):
 def beam_plan(mw, res, plane, component, orient):
     """
     What assigning the section to `component` comes down to: {"beams", "v",
-    "u", "mirrored", "card", "notes"}. card: the elements that get an Element
-    orientation card, or None. notes: what the user must know, one text each.
-    Without a component there is only the direction of the data.
+    "u", "mirrored", "card", "turned", "notes"}. v: the V axis the data are
+    written for. card: the elements that get an Element orientation card
+    with v, or None. turned: no card, and the beams keep Mecway's default V,
+    which is -axis 1 of a turn_free section: v is then that default V and the
+    data are written turned (for_beam). notes: what the user must know, one
+    text each. Without a component there is only the direction of the data.
     """
     normal = plane["normal"]
     v = principal_axis(res, plane)
     plan = {"beams": [], "v": v, "u": normal, "mirrored": False, "card": None,
-            "notes": []}
+            "turned": False, "notes": []}
     beams = beam_axes(mw, component) if component else []
     plan["beams"] = beams
     if not beams:
@@ -1471,6 +1517,19 @@ def beam_plan(mw, res, plane, component, orient):
                 min(count["along"], count["against"])))
     if not orient:
         turn = worst_turn(res, beams, v)
+        fit = got_v(res, beams, v, BEAM_TOL_DEG)
+        if (turn <= BEAM_TOL_DEG and not count["skew"] and fit is not None
+                and _dot(fit, v) < 0.0):
+            # Keep Mecway's default V and write the data for it, unless the
+            # beams have an orientation: an earlier card of this tool (V =
+            # axis 1) or one of the user's own in the saved model.
+            foreign = 1 if own_card(mw, eids) else foreign_orientation(mw,
+                                                                      eids)
+            if not foreign:
+                plan["v"], plan["turned"] = fit, True
+                if foreign is None:
+                    notes.append(_unsaved_note())
+            return plan
         if turn > BEAM_TOL_DEG:
             notes.append(tr(
                 u"De V-as is niet gezet. Zonder Element orientation staat de "
@@ -1480,6 +1539,16 @@ def beam_plan(mw, res, plane, component, orient):
                 u"beam is turned up to {0} degrees the wrong way, and its "
                 u"stiffness and stress are wrong. V vector: {1}.").format(
                     "%.1f" % turn, vector))
+        elif fit is None:
+            notes.append(tr(
+                u"De V-as is niet gezet en de balken krijgen niet allemaal "
+                u"dezelfde standaard-V. Geef ze een Element orientation met "
+                u"V-vector {0}, anders meldt MecwayAsterBridge een deel als "
+                u"gedraaid.",
+                u"The V axis was not set and the beams do not all get the "
+                u"same default V. Give them an Element orientation with V "
+                u"vector {0}, or MecwayAsterBridge reports some as "
+                u"turned.").format(vector))
         return plan
     if count["skew"]:
         return plan
@@ -1495,15 +1564,22 @@ def beam_plan(mw, res, plane, component, orient):
             u"yourself.").format(foreign, vector))
         return plan
     if foreign is None:
-        notes.append(tr(
-            u"Het model is nog niet opgeslagen: een eigen oriëntatie op deze "
-            u"balken kon niet worden gecontroleerd.",
-            u"The model has not been saved: an orientation of your own on "
-            u"these beams could not be checked."))
+        notes.append(_unsaved_note())
     release_orientation(mw, eids)
-    if worst_turn(res, beams, v) > SAME_V_DEG:
+    fit = got_v(res, beams, v, SAME_V_DEG)
+    if worst_turn(res, beams, v) > SAME_V_DEG or fit is None:
         plan["card"] = eids
+    elif _dot(fit, v) < 0.0:
+        plan["v"], plan["turned"] = fit, True
     return plan
+
+
+def _unsaved_note():
+    return tr(
+        u"Het model is nog niet opgeslagen: een eigen oriëntatie op deze "
+        u"balken kon niet worden gecontroleerd.",
+        u"The model has not been saved: an orientation of your own on "
+        u"these beams could not be checked.")
 
 
 def _import_fragment(mw, text):
@@ -1533,7 +1609,7 @@ def assign_section(mw, name, res, plane, component=None, copy_from=None,
     Returns (material, selection of the card or None, notes).
     """
     plan = beam_plan(mw, res, plane, component, orient)
-    data = for_beam(res, plan["mirrored"])
+    data = for_beam(res, plan["mirrored"], plan["turned"])
     material = create_general_section(mw, name, data, component, copy_from)
     text = u""
     if store:
@@ -1565,6 +1641,10 @@ def assign_section(mw, name, res, plane, component=None, copy_from=None,
             log(u"INFO: MecwaySectionProps: V axis {0} set on {1} beams, "
                 u"selection '{2}'.".format(axis_name(plan["v"]),
                                            len(plan["card"]), selection))
+    if plan["turned"] and store:
+        log(u"INFO: MecwaySectionProps: the beams keep Mecway's default V "
+            u"{0} (-axis 1, the same data); the lines are written for it."
+            .format(axis_name(plan["v"])))
     for note in plan["notes"]:
         log(u"WARNING: MecwaySectionProps: {0}".format(note))
     return material, selection, plan["notes"]

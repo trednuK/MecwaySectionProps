@@ -242,9 +242,9 @@ assigning to a component:
 
 | Situation | What happens |
 |---|---|
-| Beams along the normal n | *Element orientation* with the V vector on an element selection `SECTION_V_<material>`. No card when Mecway's default V is already right, or exactly opposite for a point-symmetric section (rectangle, I, Z: `EY`, `EZ`, `IYR2` and `IZR2` zero). Opposite V also reverses W, so it turns the section 180°: for any other section, a T for example, the card is set |
+| Beams along the normal n | *Element orientation* with the V vector on an element selection `SECTION_V_<material>`. No card when Mecway's default V is already right, or exactly opposite for a point-symmetric section (rectangle, I, Z: `EY`, `EZ`, `IYR2` and `IZR2` zero). In that last case the beams keep Mecway's default V and the lines of section 5 are written for that V (-axis 1): outline and recovery point turned 180°, the V axis in `SECTIE-RICHTING` that of the beams. Opposite V also reverses W, so it turns the section 180°: for any other section, a T for example, the card is set |
 | Beams against n | The same, and the data are stored mirrored in W (`EZ`, `IYR2`, recovery point, outline) |
-| Both directions mixed | The majority counts; a note when the section is not symmetric about V, as the others see it mirrored |
+| Both directions mixed | The majority counts; a note when the section is not symmetric about V, as the others see it mirrored. A point-symmetric section gets the card here too, because Mecway's default V reverses with the beam direction |
 | Beams more than 1° off n | Nothing set, a note with the V vector |
 | An orientation of your own on the beams | Nothing set, a note: Mecway does not solve with two orientations on one element |
 
@@ -254,7 +254,8 @@ says so. When you assign the section again, the elements leave the old selection
 stays in the model empty, with its card, because the API cannot remove a card. With the
 box off and the beam more than 1° wrong, the tool says so and gives the V vector. Then
 enter the direction from the table (*V vector (axis 1)*) yourself (*Loads & Constraints* >
-*Element orientation*, or *Element properties*). Whether *Undo* reverts these steps was not
+*Element orientation*, or *Element properties*). Without a note that is not needed, also not
+for a point-symmetric section on Mecway's default V: the lines are then written for that V. Whether *Undo* reverts these steps was not
 tested. Tested on Mecway 35; not on 34.
 
 The tool does not move nodes. The beam line belongs on the centroid (*Centroid global* in
@@ -270,7 +271,9 @@ that distance (Mecway manual, *Beams*).
 
 The lines below go together in one *custom model definition*. The last one is
 `** SECTIE-RICHTING <material>: V=vx vy vz, U=ux uy uz`: the V axis the beam must have and
-the beam direction the data are written for, as global unit vectors. With that line
+the beam direction the data are written for, as global unit vectors. That is principal axis 1,
+or -axis 1 when a point-symmetric section without a card keeps Mecway's default V (section 4);
+the other lines are then written for that V too. With that line
 MecwayAsterBridge warns when a beam no longer fits later, for example after another
 orientation.
 
@@ -282,8 +285,8 @@ model definition (*CCX* > *Custom model definition*; CCX reads `**` lines as com
 ** ASTER-SECTIE Profile: A=0.0018, IY=5.4e-07, IZ=1.35e-07, JX=..., AY=1.2, AZ=1.2, EY=0, EZ=-0.004, RY=0.03, RZ=0.015, RT=..., JG=..., IYR2=..., IZR2=...
 ```
 
-All values in SI (m, m², m⁴, m⁶), local y = V (principal axis 1), z = W (principal
-axis 2):
+All values in SI (m, m², m⁴, m⁶), local y = V (principal axis 1, or -axis 1 as above),
+z = W (principal axis 2):
 
 | Key | Meaning | Use by MecwayAsterBridge |
 |---|---|---|

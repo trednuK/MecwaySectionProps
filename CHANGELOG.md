@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **V axis of a point-symmetric section without a card**: when the beams keep Mecway's default
+  V, opposite to principal axis 1, the `SECTIE-RICHTING` line now gives that V, and the outline
+  and recovery point are written for it. MecwayAsterBridge and the beam analysis no longer warn
+  that a correct beam is turned 180 degrees. The same with *Set the V axis* off, unless the beams
+  have an orientation (an earlier card of the tool, or your own in the saved model). Beams in
+  both senses, whose default V differs, get the card.
 - **Display scale**: at a Windows display scale above 100 % the window grows with its text.
   At 125 % the header ran into the tabs and the input choice into *Calculate*. The window
   also stays within the screen.

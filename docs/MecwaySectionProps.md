@@ -245,9 +245,9 @@ een component:
 
 | Situatie | Wat er gebeurt |
 |---|---|
-| Balken langs de normaal n | *Element orientation* met de V-vector op een elementselectie `SECTION_V_<materiaal>`. Geen kaart als Mecway's standaard-V al klopt, of precies tegengesteld is bij een puntsymmetrische doorsnede (rechthoek, I, Z: `EY`, `EZ`, `IYR2` en `IZR2` nul). Een tegengestelde V keert ook W om en draait de doorsnede dus 180°: bij elke andere doorsnede, bijvoorbeeld een T, komt de kaart er wel |
+| Balken langs de normaal n | *Element orientation* met de V-vector op een elementselectie `SECTION_V_<materiaal>`. Geen kaart als Mecway's standaard-V al klopt, of precies tegengesteld is bij een puntsymmetrische doorsnede (rechthoek, I, Z: `EY`, `EZ`, `IYR2` en `IZR2` nul). In dat laatste geval houden de balken Mecway's standaard-V en gelden de regels van paragraaf 5 voor die V (-as 1): omtrek en recovery point 180° gedraaid, de V-as in `SECTIE-RICHTING` die van de balken. Een tegengestelde V keert ook W om en draait de doorsnede dus 180°: bij elke andere doorsnede, bijvoorbeeld een T, komt de kaart er wel |
 | Balken tegen n in | Hetzelfde, en de gegevens worden in W gespiegeld opgeslagen (`EZ`, `IYR2`, recovery point, omtrek) |
-| Beide richtingen door elkaar | De meerderheid telt; een melding als de doorsnede niet symmetrisch is om V, want de rest ziet hem gespiegeld |
+| Beide richtingen door elkaar | De meerderheid telt; een melding als de doorsnede niet symmetrisch is om V, want de rest ziet hem gespiegeld. Een puntsymmetrische doorsnede krijgt hier ook de kaart, omdat Mecway's standaard-V met de balkrichting omkeert |
 | Balken meer dan 1° schuin op n | Niets gezet, een melding met de V-vector |
 | Eigen oriëntatie op de balken | Niets gezet, een melding: Mecway rekent niet met twee oriëntaties op één element |
 
@@ -258,7 +258,8 @@ elementen uit de oude selectie; die blijft leeg in het model staan, met zijn kaa
 de API kan een kaart niet verwijderen. Mag via het vinkje niets worden gezet en staat de
 balk meer dan 1° verkeerd, dan meldt de tool dat met de V-vector. Dan geef je zelf
 (*Loads & Constraints* > *Element orientation*, of *Element properties*) als V-vector de
-richting uit de tabel (*V-vector (as 1)*). Of *Ongedaan maken* deze stappen terugdraait,
+richting uit de tabel (*V-vector (as 1)*). Zonder melding is dat niet nodig, ook niet bij een
+puntsymmetrische doorsnede op Mecway's standaard-V: de regels gelden dan voor die V. Of *Ongedaan maken* deze stappen terugdraait,
 is niet getest. Getest op Mecway 35; op 34 niet.
 
 De tool verschuift geen knopen. De balklijn hoort
@@ -275,7 +276,9 @@ neemt de wringing door die afstand niet mee (Mecway-handleiding, *Beams*).
 
 De regels hieronder gaan samen in één *custom model definition*. De laatste is
 `** SECTIE-RICHTING <materiaal>: V=vx vy vz, U=ux uy uz`: de V-as die de balk moet hebben
-en de balkrichting waarvoor de gegevens gelden, als globale eenheidsvectoren. Met die
+en de balkrichting waarvoor de gegevens gelden, als globale eenheidsvectoren. Dat is hoofdas 1,
+of -as 1 als een puntsymmetrische doorsnede zonder kaart Mecway's standaard-V houdt (paragraaf 4);
+de andere regels gelden dan ook voor die V. Met die
 regel waarschuwt MecwayAsterBridge als een balk later niet meer past, bijvoorbeeld na
 een andere oriëntatie.
 
@@ -287,7 +290,8 @@ definition (*CCX* > *Custom model definition*; CCX leest `**`-regels als comment
 ** ASTER-SECTIE Profiel: A=0.0018, IY=5.4e-07, IZ=1.35e-07, JX=..., AY=1.2, AZ=1.2, EY=0, EZ=-0.004, RY=0.03, RZ=0.015, RT=..., JG=..., IYR2=..., IZR2=...
 ```
 
-Alle waarden in SI (m, m², m⁴, m⁶), lokaal y = V (hoofdas 1), z = W (hoofdas 2):
+Alle waarden in SI (m, m², m⁴, m⁶), lokaal y = V (hoofdas 1, of -as 1 zoals hierboven), z = W
+(hoofdas 2):
 
 | Sleutel | Betekenis | Gebruik door MecwayAsterBridge |
 |---|---|---|

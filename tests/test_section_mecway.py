@@ -766,6 +766,96 @@ try:
     check("default V is -axis 1 of an open section: a card",
           plan["card"] == [1, 2])
 
+    # The same symmetric section without a card: the beams keep Mecway's
+    # default V = -axis 1, so the lines must be written for that V, or the
+    # bridge and the beam analysis report the beam turned 180 degrees.
+    def direction(text):
+        """(V, U) of the SECTIE-RICHTING line in text."""
+        line = [t for t in text.splitlines() if u"SECTIE-RICHTING" in t][0]
+        v, u = line.split(u": ", 1)[1].split(u"<")[0].split(u", ")
+        return ([float(x) for x in v[2:].split()],
+                [float(x) for x in u[2:].split()])
+
+    def near(a, b):
+        return max(abs(x - y) for x, y in zip(a, b)) < 1e-12
+
+    mw = BeamMw(up)
+    mat, sel, notes = smw.assign_section(mw, u"R", rect, beam_plane, "B")
+    text = mw.imported[0]
+    turned = smw.for_beam(rect, False, True)
+    got_v, got_u = direction(text)
+    check("symmetric section without a card: the line gives the default V",
+          sel is None and mw.cards == [] and near(got_v, (0, 1, 0)) and
+          near(got_u, (0, 0, 1)))
+    check("... and the outline is written for that V (turned 180 degrees)",
+          all(t in text for t in smw.shape_lines(mat, turned)) and
+          not all(t in text for t in smw.shape_lines(mat, rect)))
+    plain_pt = smw.recovery_point(rect)
+    turned_pt = smw.recovery_point(turned)
+    check("... the recovery point too",
+          abs(turned_pt[0] + plain_pt[0]) < 1e-12 and
+          abs(turned_pt[1] + plain_pt[1]) < 1e-12 and
+          abs(mw.props["pointy"] - turned_pt[0]) < 1e-12 and
+          abs(mw.props["pointz"] - turned_pt[1]) < 1e-12)
+    check("... and the results of the window are not changed",
+          "turn_v" not in rect and "mirror_w" not in rect)
+    plan = smw.beam_plan(BeamMw(up), rect, beam_plane, "B", False)
+    check("box off, symmetric section: the default V, only the unsaved note",
+          near(plan["v"], (0, 1, 0)) and plan["turned"] and
+          len(plan["notes"]) == 1 and
+          (u"opgeslagen" in plan["notes"][0] or u"saved" in plan["notes"][0]))
+    mw = BeamMw(down)
+    smw.assign_section(mw, u"R", rect, beam_plane, "B")
+    got_v, got_u = direction(mw.imported[0])
+    check("beam against n, default V = -axis 1: V of the beam, U reversed",
+          near(got_v, (0, 1, 0)) and near(got_u, (0, 0, -1)) and
+          not mw.cards)
+    # Values of the line: a turn about U reverses V and W (EY, EZ, IYR2 and
+    # IZR2), a mirror in W reverses W only (EZ, IYR2).
+    def values(data):
+        line = smw.aster_line(u"P", data)
+        return dict((k, float(x)) for k, x in
+                    (p.split(u"=") for p in line.split(u": ", 1)[1]
+                     .split(u", ")))
+    got = values(smw.for_beam(res_b, False, True))
+    check("turned: EY, EZ, IYR2 and IZR2 reversed",
+          (got["EY"], got["EZ"], got["IYR2"], got["IZR2"]) ==
+          (-0.02, -0.01, -2e-08, -3e-08))
+    got = values(smw.for_beam(res_b, True, True))
+    check("turned and mirrored: EY and IZR2 reversed, EZ and IYR2 not",
+          (got["EY"], got["EZ"], got["IYR2"], got["IZR2"]) ==
+          (-0.02, 0.01, 2e-08, -3e-08))
+    # One beam exactly along Z (default V = +Y) and one tilted 0.6 degrees to
+    # -X (default V = Z x U = -Y): no V fits both.
+    split = {1: up[1], 2: ((0, 0, 0), (-0.01, 0, 1.0))}
+    plan = smw.beam_plan(BeamMw(split), rect, beam_plane, "B", True)
+    check("default Vs opposite on beams of one direction: a card",
+          plan["card"] == [1, 2] and plan["v"] == smw.principal_axis(
+              rect, beam_plane))
+    plan = smw.beam_plan(BeamMw(split), rect, beam_plane, "B", False)
+    check("... box off: axis 1 and a note with the V vector",
+          plan["card"] is None and not plan.get("turned") and
+          len(plan["notes"]) == 1 and u"−Y" in plan["notes"][0])
+    # Beams along +X and -X: the default V reverses with U, so the minority
+    # would keep the opposite V. A card gives all of them axis 1.
+    x_plane = {"normal": (1.0, 0.0, 0.0), "u": (0.0, 1.0, 0.0),
+               "v": (0.0, 0.0, 1.0)}
+    x_rect = dict(rect, phi_deg=180.0)
+    both_x = {1: ((0, 0, 0), (0.5, 0, 0)), 2: ((0.5, 0, 0), (1.0, 0, 0)),
+              3: ((2.0, 0, 0), (1.5, 0, 0))}
+    plan = smw.beam_plan(BeamMw(both_x), x_rect, x_plane, "B", True)
+    check("symmetric section on beams in both senses along X: a card",
+          plan["card"] == [1, 2, 3] and not plan["turned"])
+    # Box off after an earlier assignment with the box on: the tool's own
+    # card still gives the beams axis 1, so the lines stay for axis 1.
+    mw = BeamMw(up)
+    mw.selections[u"SECTION_V_R"] = [1, 2]
+    plan = smw.beam_plan(mw, rect, beam_plane, "B", False)
+    check("box off, beams still on an earlier card of the tool: axis 1",
+          not plan["turned"] and
+          plan["v"] == smw.principal_axis(rect, beam_plane) and
+          mw.selections[u"SECTION_V_R"] == [1, 2])
+
     # T (flange 60x10, stem 10x150), symmetric about W only, on a beam
     # along +Y: Mecway's default V is -X, axis 1 is +X. -V also reverses
     # W = U x V, so the section would be turned 180 degrees (EY, EZ, IYR2
@@ -862,6 +952,10 @@ try:
     check("saved model: attributes on a beam, no card and a note",
           plan["card"] is None and len(plan["notes"]) == 1 and
           smw.foreign_orientation(BeamMw(up, saved), [1, 2]) == 1)
+    plan = smw.beam_plan(BeamMw(up, saved), rect, beam_plane, "B", False)
+    check("box off, an own orientation in the saved model: axis 1 is kept",
+          not plan["turned"] and
+          plan["v"] == smw.principal_axis(rect, beam_plane))
     write_model(u'<orientation selection="Mine">\n</orientation>')
     mw = BeamMw(up, saved)
     mw.selections[u"Mine"] = [1]
@@ -884,10 +978,11 @@ finally:
     shutil.rmtree(work, ignore_errors=True)
 
 # --- every direction: the outline on the beam is the original face ----------
-def closure(normal, phi_deg, against):
+def closure(normal, phi_deg, against, turned=False):
     """Largest distance between the original corners of a face with this
     normal and the outline placed on a beam the way Mecway places it: V from
-    the card projected on the plane normal to U, W = U x V."""
+    the card projected on the plane normal to U, W = U x V. turned: the
+    beam has -axis 1 as its V and the data are written for it."""
     n = smw._norm(normal)
     u, v = smw.plane_axes(n)
     pln = {"normal": n, "u": u, "v": v, "offset": 0.3}
@@ -895,8 +990,8 @@ def closure(normal, phi_deg, against):
             (0.216, 0.17), (0.21, 0.17)]
     data = dict(res_b, phi_deg=phi_deg, centroid=[0.23, 0.14],
                 loops=[[list(p) for p in flat]])
-    use = smw.for_beam(data, against)
-    beam_v = smw.principal_axis(data, pln)
+    use = smw.for_beam(data, against, turned)
+    beam_v = smw._mul(smw.principal_axis(data, pln), -1.0 if turned else 1.0)
     beam_u = smw._mul(n, -1.0 if against else 1.0)
     beam_w = smw._cross(beam_u, beam_v)
     worst = abs(smw._dot(beam_v, beam_u))
@@ -930,8 +1025,10 @@ worst_all = 0.0
 for normal in spread():
     for phi_deg in (0.0, 30.0, 45.0, 90.0, -30.0, -89.0):
         for against in (False, True):
-            worst_all = max(worst_all, closure(normal, phi_deg, against))
-check("every direction, both senses: outline on the original face "
+            for turn in (False, True):
+                worst_all = max(worst_all,
+                                closure(normal, phi_deg, against, turn))
+check("every direction, both senses, V or -V: outline on the original face "
       "(worst {0:.2e} m)".format(worst_all), worst_all < 1e-12)
 
 turned = {1: ((0, 0, 0), (0.1, -0.2, 0.3))}
