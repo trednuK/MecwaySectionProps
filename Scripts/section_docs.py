@@ -9,7 +9,7 @@
 # built-in browser element. IronPython 2.7.9 and CPython 3, standard library only.
 #
 # COPY. Below this header the code is that of Scripts/beam_docs.py of
-# MecwayAdvancedBeamAnalysis (commit 79bea95, same author); only DOC_NAME and
+# MecwayAdvancedBeamAnalysis (V2026.1, same author); only DOC_NAME and
 # MARKER_ID differ. tests/test_section_docs.py fails when the two drift apart
 # while that repository is next to this one. Change the source there first.
 #
