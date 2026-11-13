@@ -85,3 +85,6 @@ EZ, JG, IYR2, IZR2 within 1e-6); GUI-tested in Mecway 34. Details in the documen
 
 [Mozilla Public License 2.0](LICENSE). Mecway is a product of Mecway Ltd; this project
 is not affiliated with Mecway Ltd or EDF (Code-Aster).
+
+Provided as is, without warranty (MPL-2.0, sections 6 and 7). Always check results
+independently before you rely on them.
